@@ -22,7 +22,7 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
         extensionBundleExists: @escaping () -> Bool = {
             RightClickMenuExtensionDescriptor.all.allSatisfy {
                 FileManager.default.fileExists(
-                    atPath: installedExtensionURL(for: $0).path
+                    atPath: bundledExtensionURL(for: $0).path
                 )
             }
         },
@@ -184,11 +184,18 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
         addApplication(sublimeText)
     }
 
-    nonisolated private static func installedExtensionURL(
+    nonisolated private static func bundledHostURL(
         for descriptor: RightClickMenuExtensionDescriptor
     ) -> URL {
-        URL(fileURLWithPath: "/Applications", isDirectory: true)
+        Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Helpers", isDirectory: true)
             .appendingPathComponent(descriptor.hostBundleName, isDirectory: true)
+    }
+
+    nonisolated private static func bundledExtensionURL(
+        for descriptor: RightClickMenuExtensionDescriptor
+    ) -> URL {
+        bundledHostURL(for: descriptor)
             .appendingPathComponent("Contents/PlugIns", isDirectory: true)
             .appendingPathComponent(
                 descriptor.extensionBundleName,
@@ -232,104 +239,113 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
         }
 
         for descriptor in RightClickMenuExtensionDescriptor.all {
-            let source = helpersURL.appendingPathComponent(
+            let hostURL = helpersURL.appendingPathComponent(
                 descriptor.hostBundleName,
                 isDirectory: true
             )
-            guard FileManager.default.fileExists(atPath: source.path) else {
+            guard FileManager.default.fileExists(atPath: hostURL.path) else {
                 throw CocoaError(.fileNoSuchFile)
             }
-            let destination = URL(
+            let extensionURL = hostURL
+                .appendingPathComponent("Contents/PlugIns", isDirectory: true)
+                .appendingPathComponent(
+                    descriptor.extensionBundleName,
+                    isDirectory: true
+                )
+            let standaloneHostURL = URL(
                 fileURLWithPath: "/Applications",
                 isDirectory: true
             ).appendingPathComponent(
                 descriptor.hostBundleName,
                 isDirectory: true
             )
-            let sourceExecutable = source
-                .appendingPathComponent("Contents/MacOS", isDirectory: true)
-                .appendingPathComponent(
-                    source.deletingPathExtension().lastPathComponent
-                )
-            let destinationExecutable = destination
-                .appendingPathComponent("Contents/MacOS", isDirectory: true)
-                .appendingPathComponent(
-                    destination.deletingPathExtension().lastPathComponent
-                )
-            let extensionExecutableName = URL(
-                fileURLWithPath: descriptor.extensionBundleName
-            ).deletingPathExtension().lastPathComponent
-            let sourceExtensionExecutable = source
+            let standaloneExtensionURL = standaloneHostURL
                 .appendingPathComponent("Contents/PlugIns", isDirectory: true)
                 .appendingPathComponent(
                     descriptor.extensionBundleName,
                     isDirectory: true
                 )
-                .appendingPathComponent("Contents/MacOS", isDirectory: true)
-                .appendingPathComponent(extensionExecutableName)
-            let destinationExtensionExecutable = destination
-                .appendingPathComponent("Contents/PlugIns", isDirectory: true)
-                .appendingPathComponent(
-                    descriptor.extensionBundleName,
-                    isDirectory: true
-                )
-                .appendingPathComponent("Contents/MacOS", isDirectory: true)
-                .appendingPathComponent(extensionExecutableName)
-            let needsUpdate =
-                (try? Data(contentsOf: sourceExecutable)) !=
-                    (try? Data(contentsOf: destinationExecutable)) ||
-                (try? Data(contentsOf: sourceExtensionExecutable)) !=
-                    (try? Data(contentsOf: destinationExtensionExecutable))
-            if needsUpdate,
-               FileManager.default.fileExists(atPath: destination.path) {
+            if FileManager.default.fileExists(
+                atPath: standaloneExtensionURL.path
+            ) {
                 try? run(
                     "/usr/bin/pluginkit",
-                    arguments: [
-                        "-r",
-                        installedExtensionURL(for: descriptor).path
-                    ]
+                    arguments: ["-r", standaloneExtensionURL.path]
                 )
+            }
+            if FileManager.default.fileExists(atPath: standaloneHostURL.path) {
                 try? run(
                     "/usr/bin/pkill",
-                    arguments: ["-f", destination.path]
+                    arguments: ["-f", standaloneHostURL.path]
                 )
-                try FileManager.default.removeItem(at: destination)
+                try? run(
+                    "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                    arguments: ["-u", standaloneHostURL.path]
+                )
+                try FileManager.default.removeItem(at: standaloneHostURL)
             }
-            if needsUpdate {
-                try FileManager.default.copyItem(at: source, to: destination)
+
+            for registeredURL in registeredExtensionURLs(
+                bundleIdentifier: descriptor.bundleIdentifier
+            ) where registeredURL.standardizedFileURL !=
+                extensionURL.standardizedFileURL {
+                try? run(
+                    "/usr/bin/pluginkit",
+                    arguments: ["-r", registeredURL.path]
+                )
             }
 
             try run(
                 "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
-                arguments: ["-f", destination.path]
+                arguments: ["-f", Bundle.main.bundleURL.path]
             )
-            let extensionURL = installedExtensionURL(for: descriptor)
+            try run(
+                "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                arguments: ["-f", hostURL.path]
+            )
             try run("/usr/bin/pluginkit", arguments: ["-a", extensionURL.path])
             try run(
                 "/usr/bin/pluginkit",
                 arguments: ["-e", "use", "-i", descriptor.bundleIdentifier]
             )
-            let embeddedExtensionURL = source
-                .appendingPathComponent("Contents/PlugIns", isDirectory: true)
+            let executable = hostURL
+                .appendingPathComponent("Contents/MacOS", isDirectory: true)
                 .appendingPathComponent(
-                    descriptor.extensionBundleName,
-                    isDirectory: true
+                    hostURL.deletingPathExtension().lastPathComponent
                 )
-            try? run(
-                "/usr/bin/pluginkit",
-                arguments: ["-r", embeddedExtensionURL.path]
-            )
-            try? run(
-                "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
-                arguments: ["-u", source.path]
-            )
-            try run(
-                "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
-                arguments: ["-f", destination.path]
-            )
-            if !isProcessRunning(destinationExecutable) {
-                try launch(destinationExecutable)
+            if !isProcessRunning(executable) {
+                try launch(executable)
             }
+        }
+    }
+
+    nonisolated private static func registeredExtensionURLs(
+        bundleIdentifier: String
+    ) -> [URL] {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
+        process.arguments = [
+            "-m", "-A", "-D", "-v", "-i", bundleIdentifier
+        ]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else {
+            return []
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            return []
+        }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        guard let text = String(data: data, encoding: .utf8) else {
+            return []
+        }
+        return text.split(separator: "\n").compactMap { line in
+            guard let separator = line.range(of: "\t/") else {
+                return nil
+            }
+            return URL(fileURLWithPath: String(line[separator.upperBound...]))
         }
     }
 

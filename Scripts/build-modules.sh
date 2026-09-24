@@ -60,3 +60,9 @@ ditto \
 ditto \
   "${module_build_root}/ClipyEnhanced/Build/Products/${configuration}/ClipyEnhanced.app" \
   "${destination}/ClipyEnhanced.app"
+
+/usr/bin/codesign \
+  --force \
+  --deep \
+  --sign - \
+  "${destination}/ClipyEnhanced.app"

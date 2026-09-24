@@ -49,8 +49,10 @@ by command family. Leaf actions execute in the extension using the Finder
 selection available when Finder dispatches the action.
 
 The lightweight helper remains the containing application for the Finder Sync
-extension. The module copies it to `/Applications` and registers the extension
-while keeping the same bundle identifiers across updates.
+extension, but stays inside the main application's `Contents/Helpers`
+directory. The module registers that embedded extension and launches the
+embedded helper when needed, leaving only `MyMacSwissArmyknife.app` at the top
+level of `/Applications`.
 
 The host and extension share one JSON configuration in the extension container.
 The extension reloads it whenever Finder requests a menu, so settings changes
@@ -74,14 +76,11 @@ from the action snapshot stored when Finder requested that menu. This avoids
 querying Finder's transient selection after the context menu has closed.
 Adding another Finder command only requires another provider in the registry.
 
-The helper installer compares both the containing executable and the Finder
-extension executable. This ensures an extension-only update replaces the
-standalone helper in `/Applications` instead of leaving Finder on an older
-binary.
-
-Generated build products do not register with LaunchServices. Only the helper
-installed in `/Applications` is registered, preventing Finder from alternating
-between stale development copies of the same extension identifier.
+The helper installer removes the former standalone
+`/Applications/RightClickNewFilesHost.app`, unregisters other development
+copies of the same Finder extension, and then registers the helper embedded in
+the installed main app. This prevents Finder from alternating between stale
+copies with the same extension identifier.
 
 ## Adding a Module
 
