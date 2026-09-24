@@ -53,15 +53,18 @@ xcodebuild \
   -derivedDataPath "${root}/DerivedData/Validation/HostTests" \
   test
 
-xcodebuild \
+release_build_root="${TMPDIR:-/tmp}/MyMacSwissArmyknife-Release"
+rm -rf "${release_build_root}"
+
+MODULE_BUILD_ROOT="${release_build_root}/Modules" xcodebuild \
   -project "${root}/MyMacSwissArmyknife.xcodeproj" \
   -scheme MyMacSwissArmyknife \
   -configuration Release \
   -destination "generic/platform=macOS" \
-  -derivedDataPath "${root}/DerivedData/Validation/HostRelease" \
+  -derivedDataPath "${release_build_root}/Host" \
   clean build
 
-app="${root}/DerivedData/Validation/HostRelease/Build/Products/Release/MyMacSwissArmyknife.app"
+app="${release_build_root}/Host/Build/Products/Release/MyMacSwissArmyknife.app"
 test -x "${app}/Contents/MacOS/MyMacSwissArmyknife"
 test "$(
   plutil -extract LSUIElement raw "${app}/Contents/Info.plist"
@@ -95,6 +98,26 @@ codesign --verify --deep --strict "${clipy}"
 if plutil -extract NSExtension raw "${app}/Contents/Info.plist" >/dev/null 2>&1; then
   echo "Host Info.plist must not contain NSExtension" >&2
   exit 1
+fi
+if [[ "${VERIFY_RELEASE_PRIVACY:-0}" == "1" ]]; then
+  if find "${app}" -type f \( \
+    -iname '*.realm' -o \
+    -iname '*.realm.lock' -o \
+    -iname '*.realm.note' -o \
+    -iname '*.data' -o \
+    -iname '*snapshot*' -o \
+    -iname '*.sqlite*' -o \
+    -iname '*.log' -o \
+    -iname '.DS_Store' -o \
+    -iname '*.xcuserstate' \
+  \) -print -quit | grep -q .; then
+    echo "Release bundle contains runtime or development data." >&2
+    exit 1
+  fi
+  if grep -R -a -l -F "${HOME}/" "${app}" | grep -q .; then
+    echo "Release bundle contains a private home-directory path." >&2
+    exit 1
+  fi
 fi
 codesign --verify --deep --strict "${app}"
 

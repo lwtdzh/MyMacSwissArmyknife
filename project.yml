@@ -7,6 +7,10 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     SWIFT_STRICT_CONCURRENCY: minimal
+    OTHER_SWIFT_FLAGS: "$(inherited) -file-prefix-map $(SRCROOT)=."
+    SWIFT_SERIALIZE_DEBUGGING_OPTIONS: NO
+    OTHER_CFLAGS: "$(inherited) -ffile-prefix-map=$(SRCROOT)=."
+    OTHER_CPLUSPLUSFLAGS: "$(inherited) -ffile-prefix-map=$(SRCROOT)=."
     MACOSX_DEPLOYMENT_TARGET: "13.5"
     REGISTER_WITH_LAUNCH_SERVICES: NO
 targets:

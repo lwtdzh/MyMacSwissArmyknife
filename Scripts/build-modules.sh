@@ -10,7 +10,7 @@ fi
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 destination="$1"
 configuration="${CONFIGURATION:-Debug}"
-module_build_root="${root}/Build/Modules/${configuration}"
+module_build_root="${MODULE_BUILD_ROOT:-${root}/Build/Modules/${configuration}}"
 clean_path="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
 
 resource_root="${root}/Upstream/ResourceMonitor"
@@ -31,6 +31,10 @@ clipy_root="${root}/Upstream/ClipyEnhanced"
   -derivedDataPath "${module_build_root}/ResourceMonitor" \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="-" \
+  OTHER_SWIFT_FLAGS="-file-prefix-map ${root}=." \
+  SWIFT_SERIALIZE_DEBUGGING_OPTIONS=NO \
+  OTHER_CFLAGS="-ffile-prefix-map=${root}=." \
+  OTHER_CPLUSPLUSFLAGS="-ffile-prefix-map=${root}=." \
   build
 
 rm -rf "${destination}"
@@ -55,6 +59,10 @@ ditto \
   -derivedDataPath "${module_build_root}/ClipyEnhanced" \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="-" \
+  OTHER_SWIFT_FLAGS="-file-prefix-map ${root}=." \
+  SWIFT_SERIALIZE_DEBUGGING_OPTIONS=NO \
+  OTHER_CFLAGS="-ffile-prefix-map=${root}=." \
+  OTHER_CPLUSPLUSFLAGS="-ffile-prefix-map=${root}=." \
   build
 
 ditto \
