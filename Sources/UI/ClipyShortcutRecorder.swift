@@ -10,12 +10,14 @@ struct ClipyShortcutRecorder: NSViewRepresentable {
         button.bezelStyle = .rounded
         button.setButtonType(.momentaryPushIn)
         button.onChange = onChange
+        button.displayTitle = display
         button.title = display
         return button
     }
 
     func updateNSView(_ button: ShortcutRecorderButton, context: Context) {
         button.onChange = onChange
+        button.displayTitle = display
         if !button.isRecording {
             button.title = display
         }
@@ -24,17 +26,71 @@ struct ClipyShortcutRecorder: NSViewRepresentable {
 
 final class ShortcutRecorderButton: NSButton {
     var onChange: ((Int?, Int?) -> Void)?
+    var displayTitle = ""
     fileprivate(set) var isRecording = false
+    private var eventMonitor: Any?
 
     override var acceptsFirstResponder: Bool { true }
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        target = self
+        action = #selector(beginRecordingAction)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        target = self
+        action = #selector(beginRecordingAction)
+    }
+
+    deinit {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
+    }
+
     override func mouseDown(with event: NSEvent) {
+        beginRecording()
+    }
+
+    @objc
+    func beginRecordingAction() {
+        beginRecording()
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard isRecording, event.type == .keyDown else {
+            return super.performKeyEquivalent(with: event)
+        }
+        record(event)
+        return true
+    }
+
+    func beginRecording() {
+        guard !isRecording else { return }
         isRecording = true
         title = "Press shortcut"
         window?.makeFirstResponder(self)
+        eventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: .keyDown
+        ) { [weak self] event in
+            guard let self, self.isRecording else { return event }
+            self.record(event)
+            return nil
+        }
     }
 
     override func keyDown(with event: NSEvent) {
+        record(event)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        finishRecording()
+        return super.resignFirstResponder()
+    }
+
+    private func record(_ event: NSEvent) {
         if event.keyCode == 53 {
             finishRecording()
             return
@@ -54,13 +110,13 @@ final class ShortcutRecorderButton: NSButton {
         finishRecording()
     }
 
-    override func resignFirstResponder() -> Bool {
-        finishRecording()
-        return super.resignFirstResponder()
-    }
-
     private func finishRecording() {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+            self.eventMonitor = nil
+        }
         isRecording = false
+        title = displayTitle
         needsDisplay = true
     }
 

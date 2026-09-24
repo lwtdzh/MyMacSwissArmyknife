@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import XCTest
 @testable import MyMacSwissArmyknife
@@ -135,5 +136,57 @@ final class ClipyEnhancedIntegrationTests: XCTestCase {
         XCTAssertEqual(payloads.last?["shortcut"] as? String, "main")
         XCTAssertEqual(payloads.last?["keyCode"] as? Int, 9)
         XCTAssertEqual(payloads.last?["modifiers"] as? Int, 768)
+    }
+
+    func testShortcutRecorderCapturesCommandKeyEquivalent() {
+        let recorder = ShortcutRecorderButton()
+        recorder.displayTitle = "⌃⌘V"
+        var captured: (Int?, Int?)?
+        recorder.onChange = { captured = ($0, $1) }
+        recorder.performClick(nil)
+
+        let consumed = recorder.performKeyEquivalent(
+            with: keyEvent(keyCode: 9, modifiers: [.command, .shift])
+        )
+
+        XCTAssertTrue(consumed)
+        XCTAssertEqual(captured?.0, 9)
+        XCTAssertEqual(captured?.1, 768)
+        XCTAssertFalse(recorder.isRecording)
+        XCTAssertEqual(recorder.title, "⌃⌘V")
+    }
+
+    func testShortcutRecorderClearsWithDelete() {
+        let recorder = ShortcutRecorderButton()
+        recorder.displayTitle = "⌃⌘V"
+        var captured: (Int?, Int?)?
+        recorder.onChange = { captured = ($0, $1) }
+        recorder.beginRecording()
+
+        recorder.keyDown(with: keyEvent(keyCode: 51))
+
+        XCTAssertNotNil(captured)
+        XCTAssertNil(captured?.0)
+        XCTAssertNil(captured?.1)
+        XCTAssertFalse(recorder.isRecording)
+        XCTAssertEqual(recorder.title, "⌃⌘V")
+    }
+
+    private func keyEvent(
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags = []
+    ) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            isARepeat: false,
+            keyCode: keyCode
+        )!
     }
 }
