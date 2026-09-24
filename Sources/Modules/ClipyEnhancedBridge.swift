@@ -14,8 +14,24 @@ struct ClipyMenuItemSnapshot: Codable, Equatable {
     let toolTip: String?
     let keyEquivalent: String
     let imageData: Data?
+    let imageWidth: Double?
+    let imageHeight: Double?
     let action: ClipyMenuAction?
     let children: [ClipyMenuItemSnapshot]
+
+    var displayImage: NSImage? {
+        guard let imageData,
+              let image = NSImage(data: imageData) else {
+            return nil
+        }
+        if let imageWidth,
+           let imageHeight,
+           imageWidth > 0,
+           imageHeight > 0 {
+            image.size = NSSize(width: imageWidth, height: imageHeight)
+        }
+        return image
+    }
 }
 
 struct ClipyMenuAction: Codable, Equatable {

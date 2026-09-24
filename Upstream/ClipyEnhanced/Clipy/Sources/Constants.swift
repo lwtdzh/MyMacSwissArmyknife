@@ -113,6 +113,8 @@ struct ClipyBridgeMenuItem: Codable {
     let toolTip: String?
     let keyEquivalent: String
     let imageData: Data?
+    let imageWidth: Double?
+    let imageHeight: Double?
     let action: ClipyBridgeAction?
     let children: [ClipyBridgeMenuItem]
 }

@@ -36,6 +36,8 @@ final class ClipyEnhancedIntegrationTests: XCTestCase {
                     toolTip: "Example",
                     keyEquivalent: "1",
                     imageData: nil,
+                    imageWidth: nil,
+                    imageHeight: nil,
                     action: action,
                     children: [
                         ClipyMenuItemSnapshot(
@@ -44,6 +46,8 @@ final class ClipyEnhancedIntegrationTests: XCTestCase {
                             toolTip: nil,
                             keyEquivalent: "",
                             imageData: nil,
+                            imageWidth: nil,
+                            imageHeight: nil,
                             action: action,
                             children: []
                         )
@@ -69,6 +73,39 @@ final class ClipyEnhancedIntegrationTests: XCTestCase {
         let bridge = ClipyEnhancedBridge(snapshotURL: url)
 
         XCTAssertEqual(bridge.snapshot, snapshot)
+    }
+
+    func testSnapshotImageRestoresClipyDisplaySize() throws {
+        let representation = try XCTUnwrap(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: 900,
+                pixelsHigh: 600,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        )
+        let imageData = try XCTUnwrap(
+            representation.representation(using: .png, properties: [:])
+        )
+        let item = ClipyMenuItemSnapshot(
+            kind: .action,
+            title: "Image",
+            toolTip: nil,
+            keyEquivalent: "",
+            imageData: imageData,
+            imageWidth: 100,
+            imageHeight: 32,
+            action: nil,
+            children: []
+        )
+
+        XCTAssertEqual(item.displayImage?.size, NSSize(width: 100, height: 32))
     }
 
     func testBridgeSendsEverySupportedAction() async {

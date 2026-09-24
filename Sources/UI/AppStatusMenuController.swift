@@ -164,9 +164,7 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         item.target = self
         item.toolTip = snapshot.toolTip
         item.isEnabled = snapshot.kind != .header
-        if let imageData = snapshot.imageData {
-            item.image = NSImage(data: imageData)
-        }
+        item.image = snapshot.displayImage
         if let action = snapshot.action {
             item.representedObject = ActionBox(action)
         }

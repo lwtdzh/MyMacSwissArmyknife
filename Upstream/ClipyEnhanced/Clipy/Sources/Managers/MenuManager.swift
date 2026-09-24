@@ -667,6 +667,8 @@ extension MenuManager {
                 toolTip: nil,
                 keyEquivalent: "",
                 imageData: nil,
+                imageWidth: nil,
+                imageHeight: nil,
                 action: nil,
                 children: []
             )
@@ -689,6 +691,8 @@ extension MenuManager {
             toolTip: item.toolTip,
             keyEquivalent: item.keyEquivalent,
             imageData: makeBridgeImageData(item.image),
+            imageWidth: item.image.map { Double($0.size.width) },
+            imageHeight: item.image.map { Double($0.size.height) },
             action: action,
             children: children
         )

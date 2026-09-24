@@ -38,6 +38,8 @@ final class ClipyBridgeTests: XCTestCase {
             toolTip: nil,
             keyEquivalent: "",
             imageData: nil,
+            imageWidth: 100,
+            imageHeight: 32,
             action: action,
             children: []
         )
@@ -49,6 +51,8 @@ final class ClipyBridgeTests: XCTestCase {
                     toolTip: "Full example",
                     keyEquivalent: "1",
                     imageData: nil,
+                    imageWidth: nil,
+                    imageHeight: nil,
                     action: action,
                     children: [child]
                 )
@@ -77,6 +81,8 @@ final class ClipyBridgeTests: XCTestCase {
 
         XCTAssertEqual(decoded.items.first?.action?.kind, "pasteClip")
         XCTAssertEqual(decoded.items.first?.children.first?.action?.representation, "plainText")
+        XCTAssertEqual(decoded.items.first?.children.first?.imageWidth, 100)
+        XCTAssertEqual(decoded.items.first?.children.first?.imageHeight, 32)
         XCTAssertEqual(decoded.shortcuts.first?.keyCode, 9)
         XCTAssertEqual(
             decoded.excludedApplications.first?.identifier,
