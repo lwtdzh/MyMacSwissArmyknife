@@ -40,7 +40,6 @@ final class SettingsWindowController: NSWindowController {
         if let tab {
             selection.selectedTab = tab
         }
-        NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
         showWindow(nil)
         window.makeKeyAndOrderFront(nil)

@@ -63,6 +63,9 @@ xcodebuild \
 
 app="${root}/DerivedData/Validation/HostRelease/Build/Products/Release/MyMacSwissArmyknife.app"
 test -x "${app}/Contents/MacOS/MyMacSwissArmyknife"
+test "$(
+  plutil -extract LSUIElement raw "${app}/Contents/Info.plist"
+)" = "true"
 test -x "${app}/Contents/Helpers/ResourceMonitor.app/Contents/MacOS/ResourceMonitor"
 clipy="${app}/Contents/Helpers/ClipyEnhanced.app"
 test -x "${clipy}/Contents/MacOS/ClipyEnhanced"
