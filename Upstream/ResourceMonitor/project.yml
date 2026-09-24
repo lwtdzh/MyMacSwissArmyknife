@@ -1,0 +1,74 @@
+name: NetSpeedMonitor
+options:
+  bundleIdPrefix: com.mymacswissarmyknife
+  deploymentTarget:
+    macOS: "13.0"
+settings:
+  base:
+    ARCHS: arm64 x86_64
+    ONLY_ACTIVE_ARCH: NO
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+targets:
+  NetSpeedHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - Sources/NetSpeedHelper
+    dependencies:
+      - sdk: IOKit.framework
+    settings:
+      base:
+        PRODUCT_NAME: net-speed-all
+        PRODUCT_BUNDLE_IDENTIFIER: com.mymacswissarmyknife.ResourceMonitor.helper
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+  NetSpeedMonitor:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/NetSpeedMonitor
+    dependencies:
+      - target: NetSpeedHelper
+    settings:
+      base:
+        PRODUCT_NAME: ResourceMonitor
+        PRODUCT_BUNDLE_IDENTIFIER: com.mymacswissarmyknife.ResourceMonitor
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: ResourceMonitor
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        INFOPLIST_KEY_LSUIElement: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+    postBuildScripts:
+      - name: Embed net-speed-all
+        script: |
+          set -eu
+          helper_source="${BUILT_PRODUCTS_DIR}/net-speed-all"
+          resources_dir="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${resources_dir}"
+          install -m 755 "${helper_source}" "${resources_dir}/net-speed-all"
+        basedOnDependencyAnalysis: false
+  ResourceMonitorTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/ResourceMonitorTests
+    dependencies:
+      - target: NetSpeedMonitor
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/ResourceMonitor.app/Contents/MacOS/ResourceMonitor"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  NetSpeedMonitor:
+    build:
+      targets:
+        NetSpeedMonitor: all
+        ResourceMonitorTests: [test]
+    test:
+      targets:
+        - ResourceMonitorTests

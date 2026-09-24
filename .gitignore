@@ -1,0 +1,6 @@
+.DS_Store
+Build/
+DerivedData/
+/MyMacSwissArmyknife.xcodeproj/
+*.xcuserstate
+xcuserdata/

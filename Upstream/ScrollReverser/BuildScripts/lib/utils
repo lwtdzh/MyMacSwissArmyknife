@@ -1,0 +1,10 @@
+#!/bin/zsh
+
+function normalise_lproj { # remove .lproj suffix, lowercase, hyphen separators 
+  print ${${${1%.lproj}//_/-}:t:l} 
+}
+
+function list_langs { # list the languages in a folder
+  list=($(for lproj in $(\ls -G $1); do print $(normalise_lproj $lproj); done))
+  print ${(j: :)list} # join with spaces
+}
