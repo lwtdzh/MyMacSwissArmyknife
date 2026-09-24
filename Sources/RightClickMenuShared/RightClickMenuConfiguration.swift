@@ -149,6 +149,7 @@ struct RightClickMenuConfigurationStore {
 
     private static var defaultFallbackFileURLs: [URL] {
         let previousProviderFiles = [
+            "com.mymacswissarmyknife.host.NewFiles.Extension",
             "com.mymacswissarmyknife.host.OpenWithExtension",
             "com.mymacswissarmyknife.host.NewFilesExtension",
             "com.mymacswissarmyknife.host.OpenTerminalExtension"

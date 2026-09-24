@@ -21,10 +21,9 @@ targets:
       - path: Sources
         excludes:
           - RightClickMenuExtension
-          - RightClickMenuHost
     dependencies:
-      - target: RightClickNewFilesHost
-        embed: false
+      - target: RightClickMenuExtension
+        embed: true
         link: false
     settings:
       base:
@@ -39,37 +38,13 @@ targets:
         script: |
           "${SRCROOT}/Scripts/build-modules.sh" \
             "${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Helpers"
-          destination="${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Helpers/RightClickNewFilesHost.app"
-          rm -rf "${destination}"
-          ditto "${BUILT_PRODUCTS_DIR}/RightClickNewFilesHost.app" "${destination}"
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/ResourceMonitor.app/Contents/Info.plist
           - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/ResourceMonitor.app/Contents/MacOS/ResourceMonitor
           - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/ClipyEnhanced.app/Contents/Info.plist
           - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/ClipyEnhanced.app/Contents/MacOS/ClipyEnhanced
-          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/RightClickNewFilesHost.app/Contents/Info.plist
         basedOnDependencyAnalysis: false
-  RightClickNewFilesHost:
-    type: application
-    platform: macOS
-    sources:
-      - Sources/RightClickMenuShared
-      - path: Sources/RightClickMenuHost
-        excludes:
-          - Info.plist
-    dependencies:
-      - target: RightClickNewFilesExtension
-    settings:
-      base:
-        PRODUCT_NAME: RightClickNewFilesHost
-        PRODUCT_BUNDLE_IDENTIFIER: com.mymacswissarmyknife.host.NewFiles
-        INFOPLIST_FILE: Sources/RightClickMenuHost/Info.plist
-        RIGHT_CLICK_MENU_PROVIDER_ROLE: all
-        CODE_SIGN_STYLE: Manual
-        CODE_SIGN_IDENTITY: "-"
-        ENABLE_HARDENED_RUNTIME: YES
-        SKIP_INSTALL: YES
-  RightClickNewFilesExtension:
+  RightClickMenuExtension:
     type: app-extension
     platform: macOS
     sources:
@@ -80,8 +55,8 @@ targets:
           - RightClickMenuExtension.entitlements
     settings:
       base:
-        PRODUCT_NAME: RightClickNewFilesExtension
-        PRODUCT_BUNDLE_IDENTIFIER: com.mymacswissarmyknife.host.NewFiles.Extension
+        PRODUCT_NAME: RightClickMenuExtension
+        PRODUCT_BUNDLE_IDENTIFIER: com.mymacswissarmyknife.host.RightClickMenuExtension
         INFOPLIST_FILE: Sources/RightClickMenuExtension/Info.plist
         CODE_SIGN_ENTITLEMENTS: Sources/RightClickMenuExtension/RightClickMenuExtension.entitlements
         RIGHT_CLICK_MENU_DISPLAY_NAME: RightClickMenu

@@ -13,23 +13,27 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
     var onStateChange: (() -> Void)?
 
     private let store: RightClickMenuConfigurationStore
-    private let extensionBundleExists: () -> Bool
+    private let extensionIsRegistered: () -> Bool
     private let installExtensions: () throws -> Void
     private var didInstallExtensions = false
 
     init(
         store: RightClickMenuConfigurationStore = RightClickMenuConfigurationStore(),
-        extensionBundleExists: @escaping () -> Bool = {
+        extensionIsRegistered: @escaping () -> Bool = {
             RightClickMenuExtensionDescriptor.all.allSatisfy {
-                FileManager.default.fileExists(
-                    atPath: bundledExtensionURL(for: $0).path
-                )
+                let extensionURL = bundledExtensionURL(for: $0)
+                return FileManager.default.fileExists(atPath: extensionURL.path)
+                    && registeredExtensionURLs(
+                        bundleIdentifier: $0.bundleIdentifier
+                    ).contains {
+                        $0.standardizedFileURL == extensionURL.standardizedFileURL
+                    }
             }
         },
         installExtensions: @escaping () throws -> Void = installBundledExtensions
     ) {
         self.store = store
-        self.extensionBundleExists = extensionBundleExists
+        self.extensionIsRegistered = extensionIsRegistered
         self.installExtensions = installExtensions
         configuration = store.load()
         seedInstalledApplicationsIfNeeded()
@@ -41,9 +45,12 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
                 $0.isEnabled = true
             }
         }
-        guard !didInstallExtensions else {
-            refreshExtensionState()
-            return
+        if didInstallExtensions {
+            let isRegistered = extensionIsRegistered()
+            guard !isRegistered else {
+                refreshExtensionState(isRegistered: true)
+                return
+            }
         }
         do {
             try installExtensions()
@@ -152,7 +159,7 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
         }
     }
 
-    private func refreshExtensionState() {
+    private func refreshExtensionState(isRegistered: Bool? = nil) {
         guard configuration.isEnabled else {
             let changed = isRunning || failureMessage != nil
             isRunning = false
@@ -162,7 +169,7 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
             }
             return
         }
-        let running = extensionBundleExists()
+        let running = isRegistered ?? extensionIsRegistered()
         let message = running ? nil : "Finder extension is missing"
         let changed = running != isRunning || message != failureMessage
         isRunning = running
@@ -184,18 +191,10 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
         addApplication(sublimeText)
     }
 
-    nonisolated private static func bundledHostURL(
-        for descriptor: RightClickMenuExtensionDescriptor
-    ) -> URL {
-        Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Helpers", isDirectory: true)
-            .appendingPathComponent(descriptor.hostBundleName, isDirectory: true)
-    }
-
     nonisolated private static func bundledExtensionURL(
         for descriptor: RightClickMenuExtensionDescriptor
     ) -> URL {
-        bundledHostURL(for: descriptor)
+        Bundle.main.bundleURL
             .appendingPathComponent("Contents/PlugIns", isDirectory: true)
             .appendingPathComponent(
                 descriptor.extensionBundleName,
@@ -204,12 +203,6 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
     }
 
     nonisolated private static func installBundledExtensions() throws {
-        let helpersURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Helpers", isDirectory: true)
-        guard FileManager.default.fileExists(atPath: helpersURL.path) else {
-            return
-        }
-
         for obsolete in [
             (
                 "RightClickOpenWithHost.app",
@@ -218,6 +211,10 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
             (
                 "RightClickOpenTerminalHost.app",
                 "RightClickOpenTerminalExtension.appex"
+            ),
+            (
+                "RightClickNewFilesHost.app",
+                "RightClickNewFilesExtension.appex"
             )
         ] {
             let hostURL = URL(
@@ -238,51 +235,26 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
             }
         }
 
-        for descriptor in RightClickMenuExtensionDescriptor.all {
-            let hostURL = helpersURL.appendingPathComponent(
-                descriptor.hostBundleName,
-                isDirectory: true
-            )
-            guard FileManager.default.fileExists(atPath: hostURL.path) else {
-                throw CocoaError(.fileNoSuchFile)
-            }
-            let extensionURL = hostURL
-                .appendingPathComponent("Contents/PlugIns", isDirectory: true)
-                .appendingPathComponent(
-                    descriptor.extensionBundleName,
-                    isDirectory: true
-                )
-            let standaloneHostURL = URL(
-                fileURLWithPath: "/Applications",
-                isDirectory: true
-            ).appendingPathComponent(
-                descriptor.hostBundleName,
-                isDirectory: true
-            )
-            let standaloneExtensionURL = standaloneHostURL
-                .appendingPathComponent("Contents/PlugIns", isDirectory: true)
-                .appendingPathComponent(
-                    descriptor.extensionBundleName,
-                    isDirectory: true
-                )
-            if FileManager.default.fileExists(
-                atPath: standaloneExtensionURL.path
+        for legacyBundleIdentifier in [
+            "com.mymacswissarmyknife.host.NewFiles.Extension",
+            "com.mymacswissarmyknife.host.OpenWithExtension",
+            "com.mymacswissarmyknife.host.NewFilesExtension",
+            "com.mymacswissarmyknife.host.OpenTerminalExtension"
+        ] {
+            for registeredURL in registeredExtensionURLs(
+                bundleIdentifier: legacyBundleIdentifier
             ) {
                 try? run(
                     "/usr/bin/pluginkit",
-                    arguments: ["-r", standaloneExtensionURL.path]
+                    arguments: ["-r", registeredURL.path]
                 )
             }
-            if FileManager.default.fileExists(atPath: standaloneHostURL.path) {
-                try? run(
-                    "/usr/bin/pkill",
-                    arguments: ["-f", standaloneHostURL.path]
-                )
-                try? run(
-                    "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
-                    arguments: ["-u", standaloneHostURL.path]
-                )
-                try FileManager.default.removeItem(at: standaloneHostURL)
+        }
+
+        for descriptor in RightClickMenuExtensionDescriptor.all {
+            let extensionURL = bundledExtensionURL(for: descriptor)
+            guard FileManager.default.fileExists(atPath: extensionURL.path) else {
+                throw CocoaError(.fileNoSuchFile)
             }
 
             for registeredURL in registeredExtensionURLs(
@@ -299,23 +271,20 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
                 "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
                 arguments: ["-f", Bundle.main.bundleURL.path]
             )
-            try run(
-                "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
-                arguments: ["-f", hostURL.path]
-            )
             try run("/usr/bin/pluginkit", arguments: ["-a", extensionURL.path])
             try run(
                 "/usr/bin/pluginkit",
                 arguments: ["-e", "use", "-i", descriptor.bundleIdentifier]
             )
-            let executable = hostURL
-                .appendingPathComponent("Contents/MacOS", isDirectory: true)
-                .appendingPathComponent(
-                    hostURL.deletingPathExtension().lastPathComponent
-                )
-            if !isProcessRunning(executable) {
-                try launch(executable)
-            }
+        }
+    }
+
+    nonisolated static func unregisterBundledExtensions() {
+        for descriptor in RightClickMenuExtensionDescriptor.all {
+            try? run(
+                "/usr/bin/pluginkit",
+                arguments: ["-r", bundledExtensionURL(for: descriptor).path]
+            )
         }
     }
 
@@ -341,39 +310,19 @@ final class RightClickMenuModule: ObservableObject, InProcessModule {
         guard let text = String(data: data, encoding: .utf8) else {
             return []
         }
-        return text.split(separator: "\n").compactMap { line in
-            guard let separator = line.range(of: "\t/") else {
+        return parseRegisteredExtensionURLs(text)
+    }
+
+    nonisolated static func parseRegisteredExtensionURLs(
+        _ output: String
+    ) -> [URL] {
+        output.split(separator: "\n").compactMap { line in
+            guard let path = line.split(separator: "\t").last,
+                  path.hasPrefix("/") else {
                 return nil
             }
-            return URL(fileURLWithPath: String(line[separator.upperBound...]))
+            return URL(fileURLWithPath: String(path))
         }
-    }
-
-    nonisolated private static func isProcessRunning(
-        _ executable: URL
-    ) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        let escapedPath = NSRegularExpression.escapedPattern(
-            for: executable.path
-        )
-        process.arguments = ["-f", "^\(escapedPath)( --background)?$"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else {
-            return false
-        }
-        process.waitUntilExit()
-        return process.terminationStatus == 0
-    }
-
-    nonisolated private static func launch(_ executable: URL) throws {
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = ["--background"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
     }
 
     nonisolated private static func run(

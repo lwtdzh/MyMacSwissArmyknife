@@ -5,13 +5,24 @@ struct RightClickMenuContext: Codable, Equatable {
     let targetedURL: URL?
 
     var destinationDirectory: URL? {
-        if let targetedURL, targetedURL.hasDirectoryPath {
-            return targetedURL
+        if selectedURLs.count == 1 {
+            return Self.destinationDirectory(for: selectedURLs[0])
         }
-        if selectedURLs.count == 1, selectedURLs[0].hasDirectoryPath {
-            return selectedURLs[0]
+        if let selectedURL = selectedURLs.first {
+            return selectedURL.deletingLastPathComponent()
         }
-        return selectedURLs.first?.deletingLastPathComponent()
+        return targetedURL.map(Self.destinationDirectory(for:))
+    }
+
+    private static func destinationDirectory(for url: URL) -> URL {
+        var isDirectory = ObjCBool(false)
+        if FileManager.default.fileExists(
+            atPath: url.path,
+            isDirectory: &isDirectory
+        ) {
+            return isDirectory.boolValue ? url : url.deletingLastPathComponent()
+        }
+        return url.hasDirectoryPath ? url : url.deletingLastPathComponent()
     }
 }
 
@@ -65,16 +76,14 @@ struct RightClickMenuExtensionDescriptor: Equatable {
     )
 
     let role: RightClickMenuProviderRole
-    let hostBundleName: String
     let extensionBundleName: String
     let bundleIdentifier: String
 
     static let all: [RightClickMenuExtensionDescriptor] = [
         .init(
             role: .all,
-            hostBundleName: "RightClickNewFilesHost.app",
-            extensionBundleName: "RightClickNewFilesExtension.appex",
-            bundleIdentifier: "com.mymacswissarmyknife.host.NewFiles.Extension"
+            extensionBundleName: "RightClickMenuExtension.appex",
+            bundleIdentifier: "com.mymacswissarmyknife.host.RightClickMenuExtension"
         )
     ]
 }

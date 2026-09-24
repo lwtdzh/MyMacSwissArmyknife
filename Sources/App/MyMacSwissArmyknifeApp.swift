@@ -5,6 +5,11 @@ import SwiftUI
 final class AppModel {
     static let shared = AppModel()
 
+    private static var isRunningTests: Bool {
+        NSClassFromString("XCTestCase") != nil ||
+            ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     let store: ModuleStateStore
     let supervisor: ModuleSupervisor
     let scrollReverser: ScrollReverserModule
@@ -34,7 +39,11 @@ final class AppModel {
             store: store,
             bridge: clipyBridge
         )
-        supervisor.start()
+        if Self.isRunningTests {
+            RightClickMenuModule.unregisterBundledExtensions()
+        } else {
+            supervisor.start()
+        }
     }
 }
 

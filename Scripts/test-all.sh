@@ -79,10 +79,9 @@ test "$(
   lipo -archs "${clipy}/Contents/MacOS/ClipyEnhanced"
 )" = "x86_64 arm64"
 test ! -e "${app}/Contents/Helpers/ScrollReverser.app"
-helper="${app}/Contents/Helpers/RightClickNewFilesHost.app"
-extension="${helper}/Contents/PlugIns/RightClickNewFilesExtension.appex"
-test -x "${helper}/Contents/MacOS/RightClickNewFilesHost"
-test -x "${extension}/Contents/MacOS/RightClickNewFilesExtension"
+test ! -e "${app}/Contents/Helpers/RightClickNewFilesHost.app"
+extension="${app}/Contents/PlugIns/RightClickMenuExtension.appex"
+test -x "${extension}/Contents/MacOS/RightClickMenuExtension"
 test "$(
   plutil -extract NSExtension.NSExtensionPointIdentifier raw \
     "${extension}/Contents/Info.plist"
@@ -93,7 +92,6 @@ test "$(
   plutil -extract CFBundleVersion raw "${extension}/Contents/Info.plist"
 )"
 codesign --verify --strict "${extension}"
-codesign --verify --deep --strict "${helper}"
 codesign --verify --deep --strict "${clipy}"
 if plutil -extract NSExtension raw "${app}/Contents/Info.plist" >/dev/null 2>&1; then
   echo "Host Info.plist must not contain NSExtension" >&2

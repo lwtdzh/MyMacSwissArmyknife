@@ -36,7 +36,7 @@ final class RightClickMenuTests: XCTestCase {
     func testDefaultConfigurationUsesFinderExtensionContainer() {
         XCTAssertTrue(
             RightClickMenuConfigurationStore.defaultFileURL.path.contains(
-                "/Library/Containers/com.mymacswissarmyknife.host.NewFiles.Extension/Data/"
+                "/Library/Containers/com.mymacswissarmyknife.host.RightClickMenuExtension/Data/"
             )
         )
     }
@@ -47,10 +47,26 @@ final class RightClickMenuTests: XCTestCase {
             [
                 RightClickMenuExtensionDescriptor(
                     role: .all,
-                    hostBundleName: "RightClickNewFilesHost.app",
-                    extensionBundleName: "RightClickNewFilesExtension.appex",
+                    extensionBundleName: "RightClickMenuExtension.appex",
                     bundleIdentifier:
-                        "com.mymacswissarmyknife.host.NewFiles.Extension"
+                        "com.mymacswissarmyknife.host.RightClickMenuExtension"
+                )
+            ]
+        )
+    }
+
+    func testPluginKitRegistryParserPreservesAbsolutePaths() {
+        let output = """
+        +    com.example.Extension(1.0)\tUUID\t2026-09-24 10:24:59 +0000\t/Applications/Example.app/Contents/PlugIns/Example.appex
+         (1 plug-in)
+        """
+
+        XCTAssertEqual(
+            RightClickMenuModule.parseRegisteredExtensionURLs(output),
+            [
+                URL(
+                    fileURLWithPath:
+                        "/Applications/Example.app/Contents/PlugIns/Example.appex"
                 )
             ]
         )
@@ -106,6 +122,46 @@ final class RightClickMenuTests: XCTestCase {
             RightClickFileTemplate.builtIns.map(\.displayName)
         )
         XCTAssertNotNil(commands[2].action)
+    }
+
+    func testNewFileBesideSelectedFileIgnoresWindowDirectory() throws {
+        let windowDirectory = temporaryDirectory()
+        let expandedFolder = windowDirectory.appendingPathComponent(
+            "YangshipinWrapper4TV",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: expandedFolder,
+            withIntermediateDirectories: false
+        )
+        let selectedFile = expandedFolder.appendingPathComponent("TESTING.md")
+        try Data().write(to: selectedFile)
+
+        let context = RightClickMenuContext(
+            selectedURLs: [selectedFile],
+            targetedURL: windowDirectory
+        )
+
+        XCTAssertEqual(context.destinationDirectory, expandedFolder)
+    }
+
+    func testNewFileInsideSelectedFolderIgnoresWindowDirectory() throws {
+        let windowDirectory = temporaryDirectory()
+        let selectedFolder = windowDirectory.appendingPathComponent(
+            "YangshipinWrapper4TV",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: selectedFolder,
+            withIntermediateDirectories: false
+        )
+
+        let context = RightClickMenuContext(
+            selectedURLs: [selectedFolder],
+            targetedURL: windowDirectory
+        )
+
+        XCTAssertEqual(context.destinationDirectory, selectedFolder)
     }
 
     func testDisabledConfigurationProducesNoCommands() {
@@ -166,7 +222,7 @@ final class RightClickMenuTests: XCTestCase {
         )
         let module = RightClickMenuModule(
             store: store,
-            extensionBundleExists: { true },
+            extensionIsRegistered: { true },
             installExtensions: {}
         )
 
@@ -202,7 +258,7 @@ final class RightClickMenuTests: XCTestCase {
         var installationCount = 0
         let module = RightClickMenuModule(
             store: store,
-            extensionBundleExists: { true },
+            extensionIsRegistered: { true },
             installExtensions: {
                 installationCount += 1
             }
@@ -213,6 +269,31 @@ final class RightClickMenuTests: XCTestCase {
         module.start()
 
         XCTAssertEqual(installationCount, 1)
+        XCTAssertTrue(module.isRunning)
+    }
+
+    @MainActor
+    func testRepeatedStartRepairsMissingFinderExtensionRegistration() {
+        let directory = temporaryDirectory()
+        let store = RightClickMenuConfigurationStore(
+            fileURL: directory.appendingPathComponent("configuration.json")
+        )
+        var isRegistered = false
+        var installationCount = 0
+        let module = RightClickMenuModule(
+            store: store,
+            extensionIsRegistered: { isRegistered },
+            installExtensions: {
+                installationCount += 1
+                isRegistered = true
+            }
+        )
+
+        module.start()
+        isRegistered = false
+        module.start()
+
+        XCTAssertEqual(installationCount, 2)
         XCTAssertTrue(module.isRunning)
     }
 

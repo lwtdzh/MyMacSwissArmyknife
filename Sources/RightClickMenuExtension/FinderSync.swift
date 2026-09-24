@@ -152,11 +152,10 @@ final class FinderSyncMenuController: NSObject {
             )
         case let .createFile(template, directory):
             do {
-                let url = try fileCreator.createFile(
+                _ = try fileCreator.createFile(
                     from: template,
                     in: directory
                 )
-                NSWorkspace.shared.activateFileViewerSelecting([url])
             } catch {
                 NSLog(
                     "RightClickMenu could not create file: %@",

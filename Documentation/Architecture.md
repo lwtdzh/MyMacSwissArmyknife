@@ -24,12 +24,10 @@ MyMacSwissArmyknife
   |     `-- ScrollReverser event tap
   |
   `-- embedded helper processes
-        +-- ResourceMonitor.app
-        `-- RightClickNewFilesHost.app
+        `-- ResourceMonitor.app
 
 MyMacSwissArmyknife.app
-  `-- Contents/Helpers/RightClickNewFilesHost.app
-        `-- Contents/PlugIns/RightClickNewFilesExtension.appex
+  `-- Contents/PlugIns/RightClickMenuExtension.appex
 ```
 
 ScrollReverser runs inside the host because macOS grants Accessibility and
@@ -41,18 +39,16 @@ ResourceMonitor remains a helper process because it owns a distinct live
 metrics menu-bar presentation. Its process boundary also lets the supervisor
 recover it independently after a crash.
 
-RightClickMenu uses one Finder Sync extension embedded in a lightweight helper.
+RightClickMenu uses one Finder Sync extension embedded directly in the main app.
 The extension returns a native `RightClickMenu` parent item with an `NSMenu`
 submenu. Finder opens that submenu on hover, with Open With applications, New
 File templates, and Open Terminal Here flattened into one level and separated
 by command family. Leaf actions execute in the extension using the Finder
 selection available when Finder dispatches the action.
 
-The lightweight helper remains the containing application for the Finder Sync
-extension, but stays inside the main application's `Contents/Helpers`
-directory. The module registers that embedded extension and launches the
-embedded helper when needed, leaving only `MyMacSwissArmyknife.app` at the top
-level of `/Applications`.
+The main app is the containing application for the Finder Sync extension. The
+module registers the extension from `Contents/PlugIns`, leaving only
+`MyMacSwissArmyknife.app` at the top level of `/Applications`.
 
 The host and extension share one JSON configuration in the extension container.
 The extension reloads it whenever Finder requests a menu, so settings changes
@@ -76,9 +72,9 @@ from the action snapshot stored when Finder requested that menu. This avoids
 querying Finder's transient selection after the context menu has closed.
 Adding another Finder command only requires another provider in the registry.
 
-The helper installer removes the former standalone
+The extension installer removes the former standalone
 `/Applications/RightClickNewFilesHost.app`, unregisters other development
-copies of the same Finder extension, and then registers the helper embedded in
+copies of the same Finder extension, and then registers the copy embedded in
 the installed main app. This prevents Finder from alternating between stale
 copies with the same extension identifier.
 
