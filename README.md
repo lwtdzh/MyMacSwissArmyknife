@@ -18,6 +18,8 @@ utilities behind one menu-bar icon and one settings window.
   [lwtdzh/clipy-enhanced](https://github.com/lwtdzh/clipy-enhanced). It provides
   clipboard history, snippets, format-specific paste choices, previews, and
   global keyboard shortcuts.
+- **AppBlocker**, which immediately terminates applications selected in its
+  block list.
 
 The host owns module enablement, login startup, settings, health reporting, and
 the main status menu. Enabling a module adds a checkmark to its menu item.
@@ -42,6 +44,7 @@ The settings window has one tab per module:
 - ClipyEnhanced: clipboard limits and behavior, stored data types, menu
   presentation, excluded applications, modifier actions, screenshots, and
   keyboard shortcuts.
+- AppBlocker: blocked applications and module startup behavior.
 
 ClipyEnhanced retains its Main Menu, History, Snippets, Clear History, and
 per-snippet-folder shortcuts. The host settings tab edits the four global

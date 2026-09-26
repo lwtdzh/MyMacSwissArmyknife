@@ -18,10 +18,12 @@ MyMacSwissArmyknife
   +-- module settings adapters
   |     +-- ScrollReverser preference domain
   |     +-- ResourceMonitor preference domain
-  |     `-- RightClickMenu shared JSON configuration
+  |     +-- RightClickMenu shared JSON configuration
+  |     `-- AppBlocker application list
   |
   +-- in-process modules
-  |     `-- ScrollReverser event tap
+  |     +-- ScrollReverser event tap
+  |     `-- AppBlocker launch observer
   |
   `-- embedded helper processes
         `-- ResourceMonitor.app
@@ -53,6 +55,11 @@ module registers the extension from `Contents/PlugIns`, leaving only
 The host and extension share one JSON configuration in the extension container.
 The extension reloads it whenever Finder requests a menu, so settings changes
 do not require restarting Finder.
+
+AppBlocker stores bundle identifiers for selected applications. While enabled,
+it handles `NSWorkspace` launch notifications immediately and scans running
+applications every 500 milliseconds as a fallback. Matching processes receive
+`SIGKILL`; the host excludes its own bundle identifier and process ID.
 
 ## RightClickMenu Providers
 

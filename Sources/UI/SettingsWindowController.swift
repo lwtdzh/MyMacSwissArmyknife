@@ -17,7 +17,8 @@ final class SettingsWindowController: NSWindowController {
             supervisor: model.supervisor,
             scrollReverser: model.scrollReverser,
             rightClickMenu: model.rightClickMenu,
-            clipyBridge: model.clipyBridge
+            clipyBridge: model.clipyBridge,
+            appBlocker: model.appBlocker
         )
         let hostingController = NSHostingController(rootView: content)
         let window = NSWindow(contentViewController: hostingController)

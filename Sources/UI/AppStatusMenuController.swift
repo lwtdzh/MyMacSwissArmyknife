@@ -15,7 +15,10 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
     private let bridge: ClipyEnhancedBridge
     private let statusItem: NSStatusItem
     private let rootMenu = NSMenu(title: "MyMacSwissArmyknife")
+    private var moduleItems: [ModuleID: NSMenuItem] = [:]
     private var clipyItem: NSMenuItem?
+    private var isRootMenuOpen = false
+    private var pendingConfigurations: [ModuleID: ModuleConfiguration]?
     private var cancellables = Set<AnyCancellable>()
     private var eventMonitor: Any?
 
@@ -36,8 +39,8 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         rootMenu.delegate = self
 
         store.$configurations
-            .sink { [weak self] _ in
-                self?.rebuildRootMenu()
+            .sink { [weak self] configurations in
+                self?.configurationsDidChange(configurations)
             }
             .store(in: &cancellables)
         bridge.$snapshot
@@ -60,8 +63,18 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         guard menu === rootMenu else { return }
+        isRootMenuOpen = true
+        updateModuleItemStates(using: store.configurations)
         bridge.requestSnapshot()
         refreshClipySubmenu()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        guard menu === rootMenu else { return }
+        isRootMenuOpen = false
+        guard let configurations = pendingConfigurations else { return }
+        pendingConfigurations = nil
+        rebuildRootMenu(using: configurations)
     }
 
     @objc private func toggleModule(_ sender: NSMenuItem) {
@@ -69,6 +82,7 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
             return
         }
         let enabled = store.configuration(for: id).isEnabled
+        sender.state = enabled ? .off : .on
         store.setEnabled(!enabled, for: id)
     }
 
@@ -86,8 +100,24 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         NSApplication.shared.terminate(nil)
     }
 
-    private func rebuildRootMenu() {
+    private func configurationsDidChange(
+        _ configurations: [ModuleID: ModuleConfiguration]
+    ) {
+        if isRootMenuOpen {
+            pendingConfigurations = configurations
+            updateModuleItemStates(using: configurations)
+        } else {
+            rebuildRootMenu(using: configurations)
+        }
+    }
+
+    private func rebuildRootMenu(
+        using configurations: [ModuleID: ModuleConfiguration]? = nil
+    ) {
+        let configurations = configurations ?? store.configurations
         rootMenu.removeAllItems()
+        moduleItems.removeAll()
+        clipyItem = nil
 
         for definition in ModuleDefinition.builtIns {
             let item = NSMenuItem(
@@ -97,11 +127,12 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
             )
             item.target = self
             item.representedObject = definition.id.rawValue
-            item.state = store.configuration(for: definition.id).isEnabled ? .on : .off
+            item.state = configurations[definition.id]?.isEnabled == true ? .on : .off
+            moduleItems[definition.id] = item
 
             if definition.id == .clipyEnhanced {
                 clipyItem = item
-                if store.configuration(for: .clipyEnhanced).isEnabled {
+                if configurations[.clipyEnhanced]?.isEnabled == true {
                     item.submenu = makeClipyMenu()
                 }
             }
@@ -126,12 +157,24 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         rootMenu.addItem(quitItem)
     }
 
+    private func updateModuleItemStates(
+        using configurations: [ModuleID: ModuleConfiguration]
+    ) {
+        for (id, item) in moduleItems {
+            item.state = configurations[id]?.isEnabled == true ? .on : .off
+        }
+    }
+
     private func refreshClipySubmenu() {
         guard let clipyItem else { return }
         clipyItem.state = store.configuration(for: .clipyEnhanced).isEnabled ? .on : .off
         clipyItem.submenu = store.configuration(for: .clipyEnhanced).isEnabled
             ? makeClipyMenu()
             : nil
+    }
+
+    func displayedModuleState(_ id: ModuleID) -> NSControl.StateValue? {
+        moduleItems[id]?.state
     }
 
     private func makeClipyMenu() -> NSMenu {
@@ -186,9 +229,9 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
 
             if event.type == .leftMouseUp,
                event.window?.level == .popUpMenu {
-                if self.shouldToggleClipyItem() {
+                if let item = self.highlightedModuleItem() {
                     self.rootMenu.cancelTracking()
-                    self.toggleModule(self.clipyItem!)
+                    self.toggleModule(item)
                     return nil
                 }
                 if let item = self.highlightedClipyActionItem(),
@@ -200,9 +243,10 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
 
             if event.type == .keyDown,
                let characters = event.charactersIgnoringModifiers {
-                if characters == "\r", self.shouldToggleClipyItem() {
+                if characters == "\r",
+                   let item = self.highlightedModuleItem() {
                     self.rootMenu.cancelTracking()
-                    self.toggleModule(self.clipyItem!)
+                    self.toggleModule(item)
                     return nil
                 }
                 if characters == "\r",
@@ -223,9 +267,15 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         }
     }
 
-    private func shouldToggleClipyItem() -> Bool {
-        guard rootMenu.highlightedItem === clipyItem else { return false }
-        return clipyItem?.submenu?.highlightedItem == nil
+    private func highlightedModuleItem() -> NSMenuItem? {
+        guard let item = rootMenu.highlightedItem,
+              ModuleID(rawValue: item.representedObject as? String ?? "") != nil else {
+            return nil
+        }
+        if item === clipyItem, item.submenu?.highlightedItem != nil {
+            return nil
+        }
+        return item
     }
 
     private func highlightedClipyActionItem() -> NSMenuItem? {

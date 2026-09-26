@@ -676,6 +676,7 @@ extension MenuManager {
 
         let children = item.submenu?.items.compactMap(makeBridgeItem) ?? []
         let action = makeBridgeAction(item)
+        let image = bridgeImage(for: item)
         let kind: ClipyBridgeMenuItem.Kind
         if item.submenu != nil {
             kind = .submenu
@@ -690,12 +691,34 @@ extension MenuManager {
             title: item.title,
             toolTip: item.toolTip,
             keyEquivalent: item.keyEquivalent,
-            imageData: makeBridgeImageData(item.image),
-            imageWidth: item.image.map { Double($0.size.width) },
-            imageHeight: item.image.map { Double($0.size.height) },
+            imageData: makeBridgeImageData(image),
+            imageWidth: image.map { Double($0.size.width) },
+            imageHeight: image.map { Double($0.size.height) },
             action: action,
             children: children
         )
+    }
+
+    private func bridgeImage(for item: NSMenuItem) -> NSImage? {
+        if let image = item.image {
+            return image
+        }
+        guard item.action == #selector(AppDelegate.selectClipMenuItem(_:)),
+              let dataHash = item.representedObject as? String,
+              let clip = realm.object(
+                  ofType: CPYClip.self,
+                  forPrimaryKey: dataHash
+              ),
+              !clip.thumbnailPath.isEmpty else {
+            return nil
+        }
+
+        let defaults = AppEnvironment.current.defaults
+        let shouldShow = clip.isColorCode
+            ? defaults.bool(forKey: Constants.UserDefaults.showColorPreviewInTheMenu)
+            : defaults.bool(forKey: Constants.UserDefaults.showImageInTheMenu)
+        guard shouldShow else { return nil }
+        return PINCache.shared.object(forKey: clip.thumbnailPath) as? NSImage
     }
 
     private func makeBridgeImageData(_ image: NSImage?) -> Data? {

@@ -10,6 +10,7 @@ enum ModuleID: String, CaseIterable, Codable, Hashable, Identifiable {
     case resourceMonitor
     case rightClickMenu
     case clipyEnhanced
+    case appBlocker
 
     var id: String { rawValue }
 }
@@ -55,6 +56,13 @@ struct ModuleDefinition: Identifiable, Hashable {
                 bundleIdentifier: "com.clipy-app.ClipyEnhanced",
                 bundleName: "ClipyEnhanced.app"
             )
+        ),
+        ModuleDefinition(
+            id: .appBlocker,
+            displayName: "AppBlocker",
+            summary: "Immediately stop selected applications",
+            systemImage: "nosign.app",
+            execution: .inProcess
         )
     ]
 }

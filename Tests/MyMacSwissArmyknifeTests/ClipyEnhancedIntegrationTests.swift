@@ -105,7 +105,17 @@ final class ClipyEnhancedIntegrationTests: XCTestCase {
             children: []
         )
 
-        XCTAssertEqual(item.displayImage?.size, NSSize(width: 100, height: 32))
+        let image = try XCTUnwrap(item.displayImage)
+        var imageRect = NSRect(origin: .zero, size: image.size)
+
+        XCTAssertEqual(image.size, NSSize(width: 100, height: 32))
+        XCTAssertNotNil(
+            image.cgImage(
+                forProposedRect: &imageRect,
+                context: nil,
+                hints: nil
+            )
+        )
     }
 
     func testBridgeSendsEverySupportedAction() async {

@@ -14,6 +14,7 @@ final class AppModel {
     let supervisor: ModuleSupervisor
     let scrollReverser: ScrollReverserModule
     let rightClickMenu: RightClickMenuModule
+    let appBlocker: AppBlockerModule
     let clipyBridge: ClipyEnhancedBridge
     let statusMenu: AppStatusMenuController
 
@@ -22,17 +23,20 @@ final class AppModel {
         let store = ModuleStateStore()
         let scrollReverser = ScrollReverserModule()
         let rightClickMenu = RightClickMenuModule()
+        let appBlocker = AppBlockerModule()
         let clipyBridge = ClipyEnhancedBridge()
         let supervisor = ModuleSupervisor(
             store: store,
             inProcessModules: [
                 .scrollReverser: scrollReverser,
-                .rightClickMenu: rightClickMenu
+                .rightClickMenu: rightClickMenu,
+                .appBlocker: appBlocker
             ]
         )
         self.store = store
         self.scrollReverser = scrollReverser
         self.rightClickMenu = rightClickMenu
+        self.appBlocker = appBlocker
         self.clipyBridge = clipyBridge
         self.supervisor = supervisor
         self.statusMenu = AppStatusMenuController(

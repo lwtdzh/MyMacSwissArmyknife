@@ -5,6 +5,7 @@ enum SettingsTab: Hashable {
     case resourceMonitor
     case rightClickMenu
     case clipyEnhanced
+    case appBlocker
 }
 
 @MainActor
@@ -19,6 +20,7 @@ struct CollectionSettingsView: View {
     @ObservedObject var scrollReverser: ScrollReverserModule
     @ObservedObject var rightClickMenu: RightClickMenuModule
     @ObservedObject var clipyBridge: ClipyEnhancedBridge
+    @ObservedObject var appBlocker: AppBlockerModule
 
     var body: some View {
         TabView(selection: $selection.selectedTab) {
@@ -57,6 +59,16 @@ struct CollectionSettingsView: View {
                     Label("ClipyEnhanced", systemImage: "clipboard")
                 }
                 .tag(SettingsTab.clipyEnhanced)
+
+            AppBlockerSettingsView(
+                store: store,
+                supervisor: supervisor,
+                appBlocker: appBlocker
+            )
+                .tabItem {
+                    Label("AppBlocker", systemImage: "nosign.app")
+                }
+                .tag(SettingsTab.appBlocker)
         }
         .padding(20)
         .frame(minWidth: 640, idealWidth: 700, minHeight: 520, idealHeight: 580)

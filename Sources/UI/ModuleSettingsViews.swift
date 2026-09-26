@@ -467,6 +467,120 @@ private struct AddFileTemplateSheet: View {
     }
 }
 
+struct AppBlockerSettingsView: View {
+    @ObservedObject var store: ModuleStateStore
+    @ObservedObject var supervisor: ModuleSupervisor
+    @ObservedObject var appBlocker: AppBlockerModule
+
+    @State private var addError: String?
+
+    private let definition = ModuleDefinition.builtIns.first {
+        $0.id == .appBlocker
+    }!
+
+    var body: some View {
+        Form {
+            ModuleLifecycleSection(
+                definition: definition,
+                store: store,
+                supervisor: supervisor
+            )
+
+            Section("Blocked Applications") {
+                if appBlocker.blockedApplications.isEmpty {
+                    Text("No blocked applications")
+                        .foregroundStyle(.secondary)
+                }
+
+                ForEach(
+                    Array(appBlocker.blockedApplications.enumerated()),
+                    id: \.element.id
+                ) { index, application in
+                    HStack(spacing: 10) {
+                        Image(
+                            nsImage: NSWorkspace.shared.icon(
+                                forFile: application.path
+                            )
+                        )
+                        .resizable()
+                        .frame(width: 28, height: 28)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(application.displayName)
+                            Text(application.bundleIdentifier)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Button {
+                            appBlocker.removeApplications(
+                                at: IndexSet(integer: index)
+                            )
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove \(application.displayName)")
+                    }
+                }
+
+                Button {
+                    chooseApplication()
+                } label: {
+                    Label("Add Application", systemImage: "plus")
+                }
+            }
+            .disabled(!store.configuration(for: .appBlocker).isEnabled)
+
+            if let error = appBlocker.lastBlockError {
+                Section("Last Error") {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .alert(
+            "Could Not Add Application",
+            isPresented: Binding(
+                get: { addError != nil },
+                set: { if !$0 { addError = nil } }
+            )
+        ) {
+            Button("OK") {
+                addError = nil
+            }
+        } message: {
+            Text(addError ?? "")
+        }
+    }
+
+    private func chooseApplication() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.directoryURL = URL(
+            fileURLWithPath: "/Applications",
+            isDirectory: true
+        )
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        switch appBlocker.addApplication(url) {
+        case .added:
+            addError = nil
+        case .alreadyBlocked:
+            addError = "That application is already in the block list."
+        case .invalidApplication:
+            addError = "Select a macOS application with a bundle identifier."
+        case .cannotBlockThisApp:
+            addError = "MyMacSwissArmyknife cannot block itself."
+        }
+    }
+}
+
 struct ClipyEnhancedSettingsView: View {
     @ObservedObject var store: ModuleStateStore
     @ObservedObject var supervisor: ModuleSupervisor

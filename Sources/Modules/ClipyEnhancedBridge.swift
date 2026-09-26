@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ImageIO
 
 struct ClipyMenuItemSnapshot: Codable, Equatable {
     enum Kind: String, Codable {
@@ -21,15 +22,34 @@ struct ClipyMenuItemSnapshot: Codable, Equatable {
 
     var displayImage: NSImage? {
         guard let imageData,
-              let image = NSImage(data: imageData) else {
+              let source = CGImageSourceCreateWithData(
+                  imageData as CFData,
+                  nil
+              ),
+              let imageRepresentation = CGImageSourceCreateImageAtIndex(
+                  source,
+                  0,
+                  [
+                      kCGImageSourceShouldCache: true,
+                      kCGImageSourceShouldCacheImmediately: true
+                  ] as CFDictionary
+              ) else {
             return nil
         }
-        if let imageWidth,
-           let imageHeight,
-           imageWidth > 0,
-           imageHeight > 0 {
-            image.size = NSSize(width: imageWidth, height: imageHeight)
-        }
+        let size =
+            if let imageWidth,
+               let imageHeight,
+               imageWidth > 0,
+               imageHeight > 0 {
+                NSSize(width: imageWidth, height: imageHeight)
+            } else {
+                NSSize(
+                    width: imageRepresentation.width,
+                    height: imageRepresentation.height
+                )
+            }
+        let image = NSImage(cgImage: imageRepresentation, size: size)
+        image.cacheMode = .always
         return image
     }
 }
