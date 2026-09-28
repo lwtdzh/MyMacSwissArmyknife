@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import Foundation
 
 @MainActor
@@ -23,6 +24,7 @@ protocol ModuleRuntime {
     func isRunning(bundleIdentifier: String) -> Bool
     func launch(bundleURL: URL) async throws
     func terminate(bundleIdentifier: String)
+    func forceTerminate(bundleIdentifier: String)
 }
 
 struct WorkspaceModuleRuntime: ModuleRuntime {
@@ -48,6 +50,16 @@ struct WorkspaceModuleRuntime: ModuleRuntime {
             application.terminate()
         }
     }
+
+    func forceTerminate(bundleIdentifier: String) {
+        for application in NSRunningApplication.runningApplications(
+            withBundleIdentifier: bundleIdentifier
+        ) {
+            if !application.forceTerminate() {
+                Darwin.kill(application.processIdentifier, SIGKILL)
+            }
+        }
+    }
 }
 
 @MainActor
@@ -63,6 +75,7 @@ final class ModuleSupervisor: ObservableObject {
     private var pendingSettingsRestarts: [ModuleID: Task<Void, Never>] = [:]
     private var cancellables = Set<AnyCancellable>()
     private var timer: Timer?
+    private var isShuttingDown = false
 
     init(
         definitions: [ModuleDefinition] = ModuleDefinition.builtIns,
@@ -95,6 +108,7 @@ final class ModuleSupervisor: ObservableObject {
     }
 
     func start() {
+        isShuttingDown = false
         reconcile()
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
@@ -105,6 +119,7 @@ final class ModuleSupervisor: ObservableObject {
     }
 
     func reconcile() {
+        guard !isShuttingDown else { return }
         for definition in definitions {
             switch definition.execution {
             case .inProcess:
@@ -119,7 +134,28 @@ final class ModuleSupervisor: ObservableObject {
         }
     }
 
+    func shutdown() {
+        guard !isShuttingDown else { return }
+        isShuttingDown = true
+        timer?.invalidate()
+        timer = nil
+        pendingSettingsRestarts.values.forEach { $0.cancel() }
+        pendingSettingsRestarts.removeAll()
+        launching.removeAll()
+
+        for definition in definitions {
+            switch definition.execution {
+            case .inProcess:
+                inProcessModules[definition.id]?.stop()
+            case .bundledApplication(let bundleIdentifier, _):
+                runtime.forceTerminate(bundleIdentifier: bundleIdentifier)
+            }
+            health[definition.id] = .stopped
+        }
+    }
+
     func restart(_ id: ModuleID) {
+        guard !isShuttingDown else { return }
         guard let definition = definitions.first(where: { $0.id == id }) else { return }
         guard store.configuration(for: id).isEnabled else { return }
 
@@ -137,6 +173,7 @@ final class ModuleSupervisor: ObservableObject {
 
             Task {
                 try? await Task.sleep(for: .milliseconds(500))
+                guard !isShuttingDown else { return }
                 launchApplication(
                     definition,
                     bundleIdentifier: bundleIdentifier,
@@ -148,6 +185,7 @@ final class ModuleSupervisor: ObservableObject {
     }
 
     func settingsDidChange(for id: ModuleID) {
+        guard !isShuttingDown else { return }
         if let module = inProcessModules[id] {
             module.settingsDidChange()
             reconcile()
@@ -222,6 +260,7 @@ final class ModuleSupervisor: ObservableObject {
         bundleName: String,
         restarting: Bool
     ) {
+        guard !isShuttingDown else { return }
         guard let url = bundleURL(bundleName) else {
             health[definition.id] = .failed("Module bundle is missing")
             return
@@ -232,14 +271,26 @@ final class ModuleSupervisor: ObservableObject {
         Task {
             do {
                 try await runtime.launch(bundleURL: url)
+                guard !isShuttingDown else {
+                    runtime.forceTerminate(bundleIdentifier: bundleIdentifier)
+                    launching.remove(definition.id)
+                    return
+                }
                 try await Task.sleep(for: .milliseconds(750))
+                guard !isShuttingDown else {
+                    runtime.forceTerminate(bundleIdentifier: bundleIdentifier)
+                    launching.remove(definition.id)
+                    return
+                }
                 if runtime.isRunning(bundleIdentifier: bundleIdentifier) {
                     health[definition.id] = .running
                 } else {
                     health[definition.id] = .failed("Module exited during startup")
                 }
             } catch {
-                health[definition.id] = .failed(error.localizedDescription)
+                if !isShuttingDown {
+                    health[definition.id] = .failed(error.localizedDescription)
+                }
             }
             launching.remove(definition.id)
         }

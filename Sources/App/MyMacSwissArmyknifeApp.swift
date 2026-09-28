@@ -83,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        AppModel.shared.supervisor.shutdown()
         DistributedNotificationCenter.default().removeObserver(self)
     }
 

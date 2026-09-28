@@ -103,6 +103,57 @@ final class ModuleSupervisorTests: XCTestCase {
         XCTAssertEqual(supervisor.health[definition.id], .running)
     }
 
+    func testShutdownStopsEveryModuleWithoutChangingEnabledState() {
+        let helperDefinition = ModuleDefinition(
+            id: .resourceMonitor,
+            displayName: "Helper",
+            summary: "Test helper",
+            systemImage: "gauge",
+            execution: .bundledApplication(
+                bundleIdentifier: "com.example.helper",
+                bundleName: "Helper.app"
+            )
+        )
+        let inProcessDefinition = ModuleDefinition(
+            id: .appBlocker,
+            displayName: "In Process",
+            summary: "Test in-process module",
+            systemImage: "gear",
+            execution: .inProcess
+        )
+        let runtime = ModuleRuntimeSpy()
+        runtime.runningBundleIdentifiers.insert(helperDefinition.bundleIdentifier)
+        let module = InProcessModuleSpy(id: inProcessDefinition.id)
+        module.isRunning = true
+        let store = makeStore(definitions: [
+            helperDefinition,
+            inProcessDefinition
+        ])
+        store.setEnabled(true, for: helperDefinition.id)
+        store.setEnabled(true, for: inProcessDefinition.id)
+        let supervisor = ModuleSupervisor(
+            definitions: [helperDefinition, inProcessDefinition],
+            store: store,
+            runtime: runtime,
+            inProcessModules: [inProcessDefinition.id: module]
+        )
+
+        supervisor.shutdown()
+        supervisor.reconcile()
+
+        XCTAssertEqual(
+            runtime.forceTerminatedBundleIdentifiers,
+            [helperDefinition.bundleIdentifier]
+        )
+        XCTAssertTrue(runtime.terminatedBundleIdentifiers.isEmpty)
+        XCTAssertEqual(module.stopCount, 1)
+        XCTAssertEqual(module.startCount, 0)
+        XCTAssertEqual(supervisor.health[helperDefinition.id], .stopped)
+        XCTAssertEqual(supervisor.health[inProcessDefinition.id], .stopped)
+        XCTAssertTrue(store.configuration(for: helperDefinition.id).isEnabled)
+        XCTAssertTrue(store.configuration(for: inProcessDefinition.id).isEnabled)
+    }
+
     private func makeDefinition() -> ModuleDefinition {
         ModuleDefinition(
             id: .scrollReverser,
@@ -127,11 +178,17 @@ final class ModuleSupervisorTests: XCTestCase {
     }
 
     private func makeStore(definition: ModuleDefinition) -> ModuleStateStore {
+        makeStore(definitions: [definition])
+    }
+
+    private func makeStore(
+        definitions: [ModuleDefinition]
+    ) -> ModuleStateStore {
         let name = "MyMacSwissArmyknifeTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return ModuleStateStore(
-            definitions: [definition],
+            definitions: definitions,
             defaults: defaults,
             bootSession: BootSessionStubForSupervisor(id: "boot-a"),
             loginItemManager: LoginItemNoop()
@@ -161,6 +218,7 @@ private final class ModuleRuntimeSpy: ModuleRuntime {
     var runningBundleIdentifiers = Set<String>()
     private(set) var launchCount = 0
     private(set) var terminatedBundleIdentifiers: [String] = []
+    private(set) var forceTerminatedBundleIdentifiers: [String] = []
     var bundleIdentifierToStart: String?
     var onLaunch: (() -> Void)?
 
@@ -178,6 +236,11 @@ private final class ModuleRuntimeSpy: ModuleRuntime {
 
     func terminate(bundleIdentifier: String) {
         terminatedBundleIdentifiers.append(bundleIdentifier)
+        runningBundleIdentifiers.remove(bundleIdentifier)
+    }
+
+    func forceTerminate(bundleIdentifier: String) {
+        forceTerminatedBundleIdentifiers.append(bundleIdentifier)
         runningBundleIdentifiers.remove(bundleIdentifier)
     }
 }
