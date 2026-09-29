@@ -30,6 +30,7 @@ targets:
         PRODUCT_NAME: MyMacSwissArmyknife
         PRODUCT_BUNDLE_IDENTIFIER: com.mymacswissarmyknife.host
         INFOPLIST_FILE: Sources/App/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "-"
         ENABLE_HARDENED_RUNTIME: YES
