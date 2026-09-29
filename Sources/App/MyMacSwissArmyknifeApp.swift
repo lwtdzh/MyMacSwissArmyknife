@@ -79,7 +79,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
-        SettingsWindowController.shared.show()
+        if HostPreferences.showsSettingsOnLaunch() {
+            SettingsWindowController.shared.show()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

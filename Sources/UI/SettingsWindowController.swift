@@ -24,8 +24,8 @@ final class SettingsWindowController: NSWindowController {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "MyMacSwissArmyknife"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 700, height: 580))
-        window.minSize = NSSize(width: 640, height: 520)
+        window.setContentSize(NSSize(width: 820, height: 580))
+        window.minSize = NSSize(width: 760, height: 520)
         window.isReleasedWhenClosed = false
         window.center()
         super.init(window: window)

@@ -35,6 +35,7 @@ item are omitted because the host now owns those functions.
 
 The settings window has one tab per module:
 
+- General: whether the settings window opens automatically when the host starts.
 - ScrollReverser: direction, device selection, scroll step size, and permission
   setup.
 - ResourceMonitor: presentation mode, visible metrics, units, and refresh
@@ -114,6 +115,8 @@ versions as the same signed code identity.
 
 ## Startup Semantics
 
+- The host starts in the background without opening Settings by default.
+- The General tab can opt in to showing Settings after every launch.
 - Enabling a module starts it and keeps it running.
 - Disabling a module stops it and clears its login-startup setting.
 - Selecting **Start at login** enables the module and registers the host as a

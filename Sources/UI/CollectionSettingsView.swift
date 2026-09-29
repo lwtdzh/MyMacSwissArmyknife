@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum SettingsTab: Hashable {
+    case general
     case scrollReverser
     case resourceMonitor
     case rightClickMenu
@@ -10,7 +11,7 @@ enum SettingsTab: Hashable {
 
 @MainActor
 final class SettingsSelection: ObservableObject {
-    @Published var selectedTab: SettingsTab = .scrollReverser
+    @Published var selectedTab: SettingsTab = .general
 }
 
 struct CollectionSettingsView: View {
@@ -24,6 +25,12 @@ struct CollectionSettingsView: View {
 
     var body: some View {
         TabView(selection: $selection.selectedTab) {
+            GeneralSettingsView()
+                .tabItem {
+                    Label("General", systemImage: "gearshape")
+                }
+                .tag(SettingsTab.general)
+
             ScrollReverserSettingsView(
                 store: store,
                 supervisor: supervisor,
@@ -71,7 +78,24 @@ struct CollectionSettingsView: View {
                 .tag(SettingsTab.appBlocker)
         }
         .padding(20)
-        .frame(minWidth: 640, idealWidth: 700, minHeight: 520, idealHeight: 580)
+        .frame(minWidth: 760, idealWidth: 820, minHeight: 520, idealHeight: 580)
+    }
+}
+
+struct GeneralSettingsView: View {
+    @AppStorage(HostPreferences.showSettingsOnLaunchKey)
+    private var showSettingsOnLaunch = false
+
+    var body: some View {
+        Form {
+            Section("Launch") {
+                Toggle(
+                    "Show settings when app starts",
+                    isOn: $showSettingsOnLaunch
+                )
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
