@@ -107,7 +107,6 @@ private final class PanelResizeHandleView: NSView {
 struct SpeedPanelView: View {
     @ObservedObject var monitor: TrafficMonitor
     @ObservedObject var settings: AppSettings
-    let openSettings: () -> Void
 
     var body: some View {
         GeometryReader { geometry in
@@ -207,7 +206,6 @@ struct SpeedPanelView: View {
                     .strokeBorder(.white.opacity(0.16))
             }
             .contentShape(Rectangle())
-            .onTapGesture(count: 2, perform: openSettings)
             .overlay(alignment: .leading) {
                 PanelResizeHandle(edge: .left)
                     .frame(width: 10)

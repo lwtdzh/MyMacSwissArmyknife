@@ -8,6 +8,8 @@ private final class EdgeConstrainedPanel: NSPanel {
     static let minimumSize = NSSize(width: 234, height: 52)
     static let maximumSize = NSSize(width: 720, height: 160)
     private static let resizeHitThickness: CGFloat = 10
+    var openSettings: (() -> Void)?
+    var didFinishDragging: (() -> Void)?
 
     private struct ResizeEdges: OptionSet {
         let rawValue: Int
@@ -24,8 +26,17 @@ private final class EdgeConstrainedPanel: NSPanel {
             let edges = resizeEdges(at: event.locationInWindow)
             if !edges.isEmpty {
                 trackResize(from: event, edges: edges)
+                didFinishDragging?()
                 return
             }
+            // Handle the body before NSHostingView consumes mouse input.
+            if event.clickCount == 2 {
+                openSettings?()
+            } else {
+                trackMove(from: event)
+                didFinishDragging?()
+            }
+            return
         case .mouseMoved, .cursorUpdate:
             updateCursor(at: event.locationInWindow)
         default:
@@ -73,9 +84,43 @@ private final class EdgeConstrainedPanel: NSPanel {
         }
     }
 
-    private func trackResize(from _: NSEvent, edges: ResizeEdges) {
+    private func screenLocation(for event: NSEvent) -> NSPoint {
+        guard let location = event.cgEvent?.location else {
+            return convertPoint(toScreen: event.locationInWindow)
+        }
+        // CGEvent uses a top-left origin; AppKit uses a bottom-left origin.
+        return NSPoint(
+            x: location.x,
+            y: (NSScreen.screens.first?.frame.maxY ?? 0) - location.y
+        )
+    }
+
+    private func trackMove(from event: NSEvent) {
         let initialFrame = frame
-        let initialMouse = NSEvent.mouseLocation
+        let initialMouse = screenLocation(for: event)
+
+        while let event = nextEvent(
+            matching: [.leftMouseDragged, .leftMouseUp],
+            until: .distantFuture,
+            inMode: .eventTracking,
+            dequeue: true
+        ) {
+            if event.type == .leftMouseUp {
+                break
+            }
+
+            let mouse = screenLocation(for: event)
+            let origin = NSPoint(
+                x: initialFrame.minX + mouse.x - initialMouse.x,
+                y: initialFrame.minY + mouse.y - initialMouse.y
+            )
+            setFrame(NSRect(origin: origin, size: initialFrame.size), display: true)
+        }
+    }
+
+    private func trackResize(from event: NSEvent, edges: ResizeEdges) {
+        let initialFrame = frame
+        let initialMouse = screenLocation(for: event)
         let eventMask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp]
 
         while let event = nextEvent(
@@ -88,7 +133,7 @@ private final class EdgeConstrainedPanel: NSPanel {
                 break
             }
 
-            let mouse = NSEvent.mouseLocation
+            let mouse = screenLocation(for: event)
             let deltaX = mouse.x - initialMouse.x
             let deltaY = mouse.y - initialMouse.y
             let horizontalScale = (
@@ -223,10 +268,10 @@ final class FloatingPanelController: NSWindowController, NSWindowDelegate {
         panel.contentView = NSHostingView(
             rootView: SpeedPanelView(
                 monitor: monitor,
-                settings: settings,
-                openSettings: openSettings
+                settings: settings
             )
         )
+        panel.openSettings = openSettings
         panel.level = settings.floatingPanelAlwaysOnTop ? .floating : .normal
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.backgroundColor = .clear
@@ -245,6 +290,7 @@ final class FloatingPanelController: NSWindowController, NSWindowDelegate {
 
         super.init(window: panel)
         panel.delegate = self
+        panel.didFinishDragging = { [weak self] in self?.savePlacement() }
 
         if !restorePlacementForCurrentConfiguration() {
             isRestoringPlacement = true
