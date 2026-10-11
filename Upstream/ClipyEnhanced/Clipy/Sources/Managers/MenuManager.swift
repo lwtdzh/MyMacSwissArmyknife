@@ -443,16 +443,16 @@ private extension MenuManager {
         }
 
         if !clip.thumbnailPath.isEmpty && !clip.isColorCode && isShowImage {
-            PINCache.shared.object(forKeyAsync: clip.thumbnailPath) { [weak menuItem] _, _, object in
+            PINCache.shared.object(forKeyAsync: clip.thumbnailPath) { [weak self, weak menuItem] _, _, object in
                 DispatchQueue.main.async {
-                    menuItem?.image = object as? NSImage
+                    self?.setImage(object as? NSImage, on: menuItem)
                 }
             }
         }
         if !clip.thumbnailPath.isEmpty && clip.isColorCode && isShowColorCode {
-            PINCache.shared.object(forKeyAsync: clip.thumbnailPath) { [weak menuItem] _, _, object in
+            PINCache.shared.object(forKeyAsync: clip.thumbnailPath) { [weak self, weak menuItem] _, _, object in
                 DispatchQueue.main.async {
-                    menuItem?.image = object as? NSImage
+                    self?.setImage(object as? NSImage, on: menuItem)
                 }
             }
         }
@@ -719,6 +719,13 @@ extension MenuManager {
             : defaults.bool(forKey: Constants.UserDefaults.showImageInTheMenu)
         guard shouldShow else { return nil }
         return PINCache.shared.object(forKey: clip.thumbnailPath) as? NSImage
+    }
+
+    private func setImage(_ image: NSImage?, on item: NSMenuItem?) {
+        item?.image = image
+        if #available(macOS 27.0, *) {
+            item?.preferredImageVisibility = .visible
+        }
     }
 
     private func makeBridgeImageData(_ image: NSImage?) -> Data? {
