@@ -16,6 +16,7 @@ final class AppModel {
     let rightClickMenu: RightClickMenuModule
     let appBlocker: AppBlockerModule
     let clipyBridge: ClipyEnhancedBridge
+    let keepAwake: KeepAwakeModule
     let statusMenu: AppStatusMenuController
 
     private init() {
@@ -25,6 +26,7 @@ final class AppModel {
         let rightClickMenu = RightClickMenuModule()
         let appBlocker = AppBlockerModule()
         let clipyBridge = ClipyEnhancedBridge()
+        let keepAwake = KeepAwakeModule()
         let supervisor = ModuleSupervisor(
             store: store,
             inProcessModules: [
@@ -38,10 +40,12 @@ final class AppModel {
         self.rightClickMenu = rightClickMenu
         self.appBlocker = appBlocker
         self.clipyBridge = clipyBridge
+        self.keepAwake = keepAwake
         self.supervisor = supervisor
         self.statusMenu = AppStatusMenuController(
             store: store,
-            bridge: clipyBridge
+            bridge: clipyBridge,
+            keepAwake: keepAwake
         )
         if Self.isRunningTests {
             RightClickMenuModule.unregisterBundledExtensions()
@@ -85,6 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        AppModel.shared.keepAwake.stop()
         AppModel.shared.supervisor.shutdown()
         DistributedNotificationCenter.default().removeObserver(self)
     }
