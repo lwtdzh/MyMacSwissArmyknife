@@ -20,6 +20,27 @@ final class AppBlockerConfigurationStoreTests: XCTestCase {
         XCTAssertEqual(store.load(), expected)
     }
 
+    func testLegacyConfigurationDefaultsApplicationsToEnabled() throws {
+        let defaults = makeDefaults()
+        let store = AppBlockerConfigurationStore(defaults: defaults)
+        let id = UUID()
+        let legacyConfiguration: [[String: Any]] = [[
+            "id": id.uuidString,
+            "displayName": "Legacy App",
+            "bundleIdentifier": "com.example.Legacy",
+            "path": "/Applications/Legacy App.app"
+        ]]
+        defaults.set(
+            try JSONSerialization.data(withJSONObject: legacyConfiguration),
+            forKey: AppBlockerConfigurationStore.defaultKey
+        )
+
+        let application = try XCTUnwrap(store.load().first)
+
+        XCTAssertEqual(application.id, id)
+        XCTAssertTrue(application.isEnabled)
+    }
+
     private func makeDefaults() -> UserDefaults {
         let name = "AppBlockerConfigurationStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
@@ -71,6 +92,33 @@ final class AppBlockerModuleTests: XCTestCase {
         )
 
         XCTAssertEqual(runtime.terminatedProcessIdentifiers, [202])
+    }
+
+    func testDisabledApplicationIsAllowedUntilEnabled() throws {
+        let fixture = try makeApplication(
+            name: "Blocked",
+            bundleIdentifier: "com.example.Blocked"
+        )
+        let runtime = AppBlockerRuntimeSpy()
+        runtime.applications = [
+            AppBlockerRunningApplication(
+                processIdentifier: 203,
+                bundleIdentifier: "com.example.Blocked",
+                bundleURL: fixture
+            )
+        ]
+        let module = makeModule(runtime: runtime)
+        XCTAssertEqual(module.addApplication(fixture), .added)
+        let id = try XCTUnwrap(module.blockedApplications.first?.id)
+        module.setApplicationEnabled(false, id: id)
+
+        module.start()
+
+        XCTAssertTrue(runtime.terminatedProcessIdentifiers.isEmpty)
+
+        module.setApplicationEnabled(true, id: id)
+
+        XCTAssertEqual(runtime.terminatedProcessIdentifiers, [203])
     }
 
     func testUnblockedAndHostApplicationsAreNeverTerminated() throws {

@@ -45,6 +45,7 @@ final class AppModel {
         self.statusMenu = AppStatusMenuController(
             store: store,
             bridge: clipyBridge,
+            appBlocker: appBlocker,
             keepAwake: keepAwake
         )
         if Self.isRunningTests {

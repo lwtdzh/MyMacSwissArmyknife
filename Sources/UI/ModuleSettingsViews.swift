@@ -513,6 +513,19 @@ struct AppBlockerSettingsView: View {
                                 .lineLimit(1)
                         }
                         Spacer()
+                        Toggle(
+                            "Block \(application.displayName)",
+                            isOn: Binding(
+                                get: { application.isEnabled },
+                                set: {
+                                    appBlocker.setApplicationEnabled(
+                                        $0,
+                                        id: application.id
+                                    )
+                                }
+                            )
+                        )
+                        .labelsHidden()
                         Button {
                             appBlocker.removeApplications(
                                 at: IndexSet(integer: index)
@@ -531,7 +544,6 @@ struct AppBlockerSettingsView: View {
                     Label("Add Application", systemImage: "plus")
                 }
             }
-            .disabled(!store.configuration(for: .appBlocker).isEnabled)
 
             if let error = appBlocker.lastBlockError {
                 Section("Last Error") {

@@ -7,17 +7,37 @@ struct BlockedApplication: Codable, Equatable, Identifiable {
     let displayName: String
     let bundleIdentifier: String
     let path: String
+    let isEnabled: Bool
 
     init(
         id: UUID = UUID(),
         displayName: String,
         bundleIdentifier: String,
-        path: String
+        path: String,
+        isEnabled: Bool = true
     ) {
         self.id = id
         self.displayName = displayName
         self.bundleIdentifier = bundleIdentifier
         self.path = path
+        self.isEnabled = isEnabled
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case displayName
+        case bundleIdentifier
+        case path
+        case isEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        bundleIdentifier = try container.decode(String.self, forKey: .bundleIdentifier)
+        path = try container.decode(String.self, forKey: .path)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
     }
 }
 
@@ -262,6 +282,34 @@ final class AppBlockerModule: ObservableObject, InProcessModule {
         save(updated)
     }
 
+    func setApplicationEnabled(_ enabled: Bool, id: UUID) {
+        guard let index = blockedApplications.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let application = blockedApplications[index]
+        guard application.isEnabled != enabled else { return }
+
+        var updated = blockedApplications
+        updated[index] = BlockedApplication(
+            id: application.id,
+            displayName: application.displayName,
+            bundleIdentifier: application.bundleIdentifier,
+            path: application.path,
+            isEnabled: enabled
+        )
+        save(updated)
+        if enabled, isRunning {
+            enforceBlockList()
+        }
+    }
+
+    func toggleApplication(id: UUID) {
+        guard let application = blockedApplications.first(where: { $0.id == id }) else {
+            return
+        }
+        setApplicationEnabled(!application.isEnabled, id: id)
+    }
+
     func enforceBlockList() {
         for application in runtime.runningApplications {
             blockIfNeeded(application)
@@ -277,7 +325,7 @@ final class AppBlockerModule: ObservableObject, InProcessModule {
               ) != .orderedSame,
               let blocked = blockedApplications.first(where: {
                   $0.bundleIdentifier.caseInsensitiveCompare(bundleIdentifier)
-                      == .orderedSame
+                      == .orderedSame && $0.isEnabled
               }) else {
             return
         }

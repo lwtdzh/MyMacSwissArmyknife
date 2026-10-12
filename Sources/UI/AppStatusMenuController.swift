@@ -13,11 +13,14 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
 
     private let store: ModuleStateStore
     private let bridge: ClipyEnhancedBridge
+    private let appBlocker: AppBlockerModule
     private let keepAwake: KeepAwakeModule
     private let statusItem: NSStatusItem
     private let rootMenu = NSMenu(title: "MyMacSwissArmyknife")
     private var moduleItems: [ModuleID: NSMenuItem] = [:]
     private var clipyItem: NSMenuItem?
+    private var appBlockerItem: NSMenuItem?
+    private var keepAwakeItem: NSMenuItem?
     private var blockSleepItem: NSMenuItem?
     private var blockLockScreenItem: NSMenuItem?
     private var isRootMenuOpen = false
@@ -28,10 +31,12 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
     init(
         store: ModuleStateStore,
         bridge: ClipyEnhancedBridge,
+        appBlocker: AppBlockerModule,
         keepAwake: KeepAwakeModule
     ) {
         self.store = store
         self.bridge = bridge
+        self.appBlocker = appBlocker
         self.keepAwake = keepAwake
         statusItem = NSStatusBar.system.statusItem(
             withLength: NSStatusItem.variableLength
@@ -55,6 +60,12 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
             .dropFirst()
             .sink { [weak self] _ in
                 self?.refreshClipySubmenu()
+            }
+            .store(in: &cancellables)
+        appBlocker.$blockedApplications
+            .dropFirst()
+            .sink { [weak self] applications in
+                self?.appBlockerApplicationsDidChange(applications)
             }
             .store(in: &cancellables)
         keepAwake.$isBlockingSleep
@@ -85,6 +96,7 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         updateKeepAwakeItemStates()
         bridge.requestSnapshot()
         refreshClipySubmenu()
+        refreshAppBlockerSubmenu()
     }
 
     func menuDidClose(_ menu: NSMenu) {
@@ -108,6 +120,21 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         guard let box = sender.representedObject as? ActionBox else { return }
         rootMenu.cancelTracking()
         bridge.perform(box.action)
+    }
+
+    @objc private func toggleBlockedApplication(_ sender: NSMenuItem) {
+        guard let identifier = sender.representedObject as? String,
+              let id = UUID(uuidString: identifier) else {
+            return
+        }
+        toggleAppBlockerApplication(id: id)
+        sender.state = appBlocker.blockedApplications.first(where: {
+            $0.id == id
+        })?.isEnabled == true ? .on : .off
+    }
+
+    @objc private func toggleKeepAwake(_ sender: NSMenuItem) {
+        performKeepAwakePrimaryAction()
     }
 
     @objc private func toggleBlockSleep(_ sender: NSMenuItem) {
@@ -152,6 +179,8 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         rootMenu.removeAllItems()
         moduleItems.removeAll()
         clipyItem = nil
+        appBlockerItem = nil
+        keepAwakeItem = nil
         blockSleepItem = nil
         blockLockScreenItem = nil
 
@@ -171,17 +200,44 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
                 if configurations[.clipyEnhanced]?.isEnabled == true {
                     item.submenu = makeClipyMenu()
                 }
+            } else if definition.id == .appBlocker {
+                appBlockerItem = item
+                item.submenu = makeAppBlockerMenu(
+                    applications: appBlocker.blockedApplications
+                )
             }
             rootMenu.addItem(item)
         }
 
         let keepAwakeItem = NSMenuItem(
             title: "Keep Awake",
-            action: nil,
+            action: #selector(toggleKeepAwake(_:)),
             keyEquivalent: ""
         )
-        keepAwakeItem.submenu = makeKeepAwakeMenu()
+        keepAwakeItem.target = self
+        self.keepAwakeItem = keepAwakeItem
         rootMenu.addItem(keepAwakeItem)
+
+        let blockSleepItem = NSMenuItem(
+            title: "Block Sleep",
+            action: #selector(toggleBlockSleep(_:)),
+            keyEquivalent: ""
+        )
+        blockSleepItem.target = self
+        blockSleepItem.indentationLevel = 1
+        self.blockSleepItem = blockSleepItem
+        rootMenu.addItem(blockSleepItem)
+
+        let blockLockScreenItem = NSMenuItem(
+            title: "Block Lock Screen",
+            action: #selector(toggleBlockLockScreen(_:)),
+            keyEquivalent: ""
+        )
+        blockLockScreenItem.target = self
+        blockLockScreenItem.indentationLevel = 1
+        self.blockLockScreenItem = blockLockScreenItem
+        rootMenu.addItem(blockLockScreenItem)
+        updateKeepAwakeItemStates()
 
         rootMenu.addItem(.separator())
         let settings = NSMenuItem(
@@ -217,27 +273,40 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
             : nil
     }
 
-    private func makeKeepAwakeMenu() -> NSMenu {
-        let menu = NSMenu(title: "Keep Awake")
-        let blockSleepItem = NSMenuItem(
-            title: "Block Sleep",
-            action: #selector(toggleBlockSleep(_:)),
-            keyEquivalent: ""
-        )
-        blockSleepItem.target = self
-        self.blockSleepItem = blockSleepItem
-        menu.addItem(blockSleepItem)
+    private func appBlockerApplicationsDidChange(
+        _ applications: [BlockedApplication]
+    ) {
+        if isRootMenuOpen {
+            updateAppBlockerSubmenuStates(using: applications)
+        } else {
+            refreshAppBlockerSubmenu(using: applications)
+        }
+    }
 
-        let blockLockScreenItem = NSMenuItem(
-            title: "Block Lock Screen",
-            action: #selector(toggleBlockLockScreen(_:)),
-            keyEquivalent: ""
+    private func refreshAppBlockerSubmenu(
+        using applications: [BlockedApplication]? = nil
+    ) {
+        appBlockerItem?.submenu = makeAppBlockerMenu(
+            applications: applications ?? appBlocker.blockedApplications
         )
-        blockLockScreenItem.target = self
-        self.blockLockScreenItem = blockLockScreenItem
-        menu.addItem(blockLockScreenItem)
-        updateKeepAwakeItemStates()
-        return menu
+    }
+
+    private func updateAppBlockerSubmenuStates(
+        using applications: [BlockedApplication]
+    ) {
+        guard let items = appBlockerItem?.submenu?.items else { return }
+        let enabledByID = Dictionary(
+            uniqueKeysWithValues: applications.map {
+                ($0.id.uuidString, $0.isEnabled)
+            }
+        )
+        for item in items {
+            guard let identifier = item.representedObject as? String,
+                  let isEnabled = enabledByID[identifier] else {
+                continue
+            }
+            item.state = isEnabled ? .on : .off
+        }
     }
 
     private func updateKeepAwakeItemStates(
@@ -246,6 +315,7 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
     ) {
         let blocksSleep = blockSleep ?? keepAwake.isBlockingSleep
         let blocksLockScreen = blockLockScreen ?? keepAwake.isBlockingLockScreen
+        keepAwakeItem?.state = blocksSleep || blocksLockScreen ? .on : .off
         blockSleepItem?.state = blocksSleep ? .on : .off
         blockLockScreenItem?.state = blocksLockScreen ? .on : .off
     }
@@ -254,11 +324,42 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         moduleItems[id]?.state
     }
 
+    func displayedAppBlockerItems() -> [
+        (title: String, state: NSControl.StateValue, isEnabled: Bool)
+    ] {
+        appBlockerItem?.submenu?.items.map {
+            ($0.title, $0.state, $0.isEnabled)
+        } ?? []
+    }
+
+    func toggleAppBlockerApplication(id: UUID) {
+        appBlocker.toggleApplication(id: id)
+    }
+
     func displayedKeepAwakeStates() -> (
+        parent: NSControl.StateValue?,
         blockSleep: NSControl.StateValue?,
         blockLockScreen: NSControl.StateValue?
     ) {
-        (blockSleepItem?.state, blockLockScreenItem?.state)
+        (
+            keepAwakeItem?.state,
+            blockSleepItem?.state,
+            blockLockScreenItem?.state
+        )
+    }
+
+    func performKeepAwakePrimaryAction() {
+        if keepAwake.isBlockingSleep || keepAwake.isBlockingLockScreen {
+            keepAwake.stop()
+            return
+        }
+
+        guard keepAwake.setBlockingSleep(true),
+              keepAwake.setBlockingLockScreen(true) else {
+            keepAwake.stop()
+            NSSound.beep()
+            return
+        }
     }
 
     private func makeClipyMenu() -> NSMenu {
@@ -274,6 +375,39 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
             )
             loading.isEnabled = false
             menu.addItem(loading)
+        }
+        return menu
+    }
+
+    private func makeAppBlockerMenu(
+        applications: [BlockedApplication]
+    ) -> NSMenu {
+        let menu = NSMenu(title: "AppBlocker")
+        guard !applications.isEmpty else {
+            let emptyItem = NSMenuItem(
+                title: "No Apps Added",
+                action: nil,
+                keyEquivalent: ""
+            )
+            emptyItem.isEnabled = false
+            menu.addItem(emptyItem)
+            return menu
+        }
+
+        for application in applications {
+            let item = NSMenuItem(
+                title: application.displayName,
+                action: #selector(toggleBlockedApplication(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = application.id.uuidString
+            item.state = application.isEnabled ? .on : .off
+            item.image = NSWorkspace.shared.icon(forFile: application.path)
+            if #available(macOS 27.0, *) {
+                item.preferredImageVisibility = .visible
+            }
+            menu.addItem(item)
         }
         return menu
     }
@@ -359,7 +493,7 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
               ModuleID(rawValue: item.representedObject as? String ?? "") != nil else {
             return nil
         }
-        if item === clipyItem, item.submenu?.highlightedItem != nil {
+        if item.submenu?.highlightedItem != nil {
             return nil
         }
         return item
