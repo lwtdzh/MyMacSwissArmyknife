@@ -107,6 +107,7 @@ final class KeepAwakeModule: ObservableObject {
             }
         }
 
+        setBlockingLockScreen(false)
         if let systemSleepAssertion {
             powerManager.releaseAssertion(systemSleepAssertion)
         }
@@ -137,12 +138,15 @@ final class KeepAwakeModule: ObservableObject {
         userActivityTimer?.invalidate()
         userActivityTimer = nil
         releaseAssertions()
-        isBlockingSleep = false
         isBlockingLockScreen = false
+        isBlockingSleep = false
         lastError = nil
     }
 
     private func enableLockScreenBlocking() -> Bool {
+        let wasBlockingSleep = isBlockingSleep
+        guard setBlockingSleep(true) else { return false }
+
         do {
             let displayAssertion = try powerManager.createAssertion(
                 .displaySleep,
@@ -163,6 +167,9 @@ final class KeepAwakeModule: ObservableObject {
             lastError = nil
             return true
         } catch {
+            if !wasBlockingSleep {
+                setBlockingSleep(false)
+            }
             lastError = error.localizedDescription
             return false
         }

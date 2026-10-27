@@ -121,6 +121,44 @@ final class AppStatusMenuControllerTests: XCTestCase {
         XCTAssertEqual(controller.displayedKeepAwakeStates().blockLockScreen, .off)
     }
 
+    func testKeepAwakeChildActionsEnforceDependencyAndUpdateAllCheckmarks() {
+        let keepAwake = KeepAwakeModule(
+            powerManager: MenuKeepAwakePowerManager()
+        )
+        let controller = makeController(
+            appBlocker: makeAppBlocker(),
+            keepAwake: keepAwake
+        )
+        let lockScreenAction = NSSelectorFromString("toggleBlockLockScreen:")
+        let sleepAction = NSSelectorFromString("toggleBlockSleep:")
+
+        controller.perform(lockScreenAction, with: NSMenuItem())
+        XCTAssertEqual(controller.displayedKeepAwakeStates().parent, .on)
+        XCTAssertEqual(controller.displayedKeepAwakeStates().blockSleep, .on)
+        XCTAssertEqual(controller.displayedKeepAwakeStates().blockLockScreen, .on)
+
+        controller.perform(lockScreenAction, with: NSMenuItem())
+        XCTAssertEqual(controller.displayedKeepAwakeStates().parent, .on)
+        XCTAssertEqual(controller.displayedKeepAwakeStates().blockSleep, .on)
+        XCTAssertEqual(controller.displayedKeepAwakeStates().blockLockScreen, .off)
+
+        controller.performKeepAwakePrimaryAction()
+        XCTAssertEqual(controller.displayedKeepAwakeStates().parent, .off)
+        XCTAssertEqual(controller.displayedKeepAwakeStates().blockSleep, .off)
+        XCTAssertEqual(controller.displayedKeepAwakeStates().blockLockScreen, .off)
+
+        controller.perform(sleepAction, with: NSMenuItem())
+        XCTAssertEqual(controller.displayedKeepAwakeStates().parent, .on)
+        XCTAssertEqual(controller.displayedKeepAwakeStates().blockSleep, .on)
+        XCTAssertEqual(controller.displayedKeepAwakeStates().blockLockScreen, .off)
+
+        controller.perform(lockScreenAction, with: NSMenuItem())
+        controller.perform(sleepAction, with: NSMenuItem())
+        XCTAssertEqual(controller.displayedKeepAwakeStates().parent, .off)
+        XCTAssertEqual(controller.displayedKeepAwakeStates().blockSleep, .off)
+        XCTAssertEqual(controller.displayedKeepAwakeStates().blockLockScreen, .off)
+    }
+
     func testEmptyAppBlockerSubmenuShowsDisabledPlaceholder() {
         let controller = makeController(appBlocker: makeAppBlocker())
 
@@ -176,7 +214,8 @@ final class AppStatusMenuControllerTests: XCTestCase {
     }
 
     private func makeController(
-        appBlocker: AppBlockerModule
+        appBlocker: AppBlockerModule,
+        keepAwake: KeepAwakeModule? = nil
     ) -> AppStatusMenuController {
         AppStatusMenuController(
             store: ModuleStateStore(
@@ -190,7 +229,7 @@ final class AppStatusMenuControllerTests: XCTestCase {
                     .appendingPathComponent(UUID().uuidString)
             ),
             appBlocker: appBlocker,
-            keepAwake: KeepAwakeModule(
+            keepAwake: keepAwake ?? KeepAwakeModule(
                 powerManager: MenuKeepAwakePowerManager()
             )
         )

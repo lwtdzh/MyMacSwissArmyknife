@@ -153,6 +153,25 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         sender.state = keepAwake.isBlockingLockScreen ? .on : .off
     }
 
+    @objc private func turnOffDisplay() {
+        rootMenu.cancelTracking()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        process.arguments = ["displaysleepnow"]
+        process.terminationHandler = { process in
+            if process.terminationStatus != 0 {
+                DispatchQueue.main.async {
+                    NSSound.beep()
+                }
+            }
+        }
+        do {
+            try process.run()
+        } catch {
+            NSSound.beep()
+        }
+    }
+
     @objc private func openSettings() {
         SettingsWindowController.shared.show()
     }
@@ -238,6 +257,14 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         self.blockLockScreenItem = blockLockScreenItem
         rootMenu.addItem(blockLockScreenItem)
         updateKeepAwakeItemStates()
+
+        let turnOffDisplayItem = NSMenuItem(
+            title: "Turn Off Display",
+            action: #selector(turnOffDisplay),
+            keyEquivalent: ""
+        )
+        turnOffDisplayItem.target = self
+        rootMenu.addItem(turnOffDisplayItem)
 
         rootMenu.addItem(.separator())
         let settings = NSMenuItem(
