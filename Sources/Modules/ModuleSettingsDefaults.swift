@@ -37,7 +37,16 @@ enum ModuleSettingsDefaults {
 
     private static func seedClipyEnhanced() {
         guard let defaults = UserDefaults(suiteName: clipyDomain) else { return }
-        setIfMissing(30, key: "kCPYPrefMaxHistorySizeKey", defaults: defaults)
+        seedClipyEnhanced(defaults: defaults)
+    }
+
+    static func seedClipyEnhanced(defaults: UserDefaults) {
+        setIfMissingOrLegacyDefault(
+            500,
+            legacyDefault: 30,
+            key: "kCPYPrefMaxHistorySizeKey",
+            defaults: defaults
+        )
         setIfMissing(true, key: "kCPYPrefInputPasteCommandKey", defaults: defaults)
         setIfMissing(true, key: "kCPYPrefReorderClipsAfterPasting", defaults: defaults)
         setIfMissing(
@@ -76,6 +85,7 @@ enum ModuleSettingsDefaults {
         setIfMissing(false, key: "kCPYBetaPasteAndDeleteHistory", defaults: defaults)
         setIfMissing(0, key: "kCPYBetapasteAndDeleteHistoryModifier", defaults: defaults)
         setIfMissing(false, key: "kCPYBetaObserveScreenshot", defaults: defaults)
+        defaults.synchronize()
     }
 
     private static func setIfMissing(
@@ -84,6 +94,21 @@ enum ModuleSettingsDefaults {
         defaults: UserDefaults
     ) {
         if defaults.object(forKey: key) == nil {
+            defaults.set(value, forKey: key)
+        }
+    }
+
+    private static func setIfMissingOrLegacyDefault(
+        _ value: Int,
+        legacyDefault: Int,
+        key: String,
+        defaults: UserDefaults
+    ) {
+        guard defaults.object(forKey: key) != nil else {
+            defaults.set(value, forKey: key)
+            return
+        }
+        if defaults.integer(forKey: key) == legacyDefault {
             defaults.set(value, forKey: key)
         }
     }

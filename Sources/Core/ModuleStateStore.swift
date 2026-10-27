@@ -113,6 +113,7 @@ final class ModuleStateStore: ObservableObject {
         )
         if let data = try? JSONEncoder().encode(encoded) {
             defaults.set(data, forKey: Key.configurations)
+            defaults.synchronize()
         }
     }
 

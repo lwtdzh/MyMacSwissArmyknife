@@ -22,7 +22,7 @@ final class CPYUtilities {
         /* General */
         defaultValues.updateValue(NSNumber(value: false), forKey: Constants.UserDefaults.loginItem)
         defaultValues.updateValue(NSNumber(value: false), forKey: Constants.UserDefaults.suppressAlertForLoginItem)
-        defaultValues.updateValue(NSNumber(value: 30), forKey: Constants.UserDefaults.maxHistorySize)
+        defaultValues.updateValue(NSNumber(value: 500), forKey: Constants.UserDefaults.maxHistorySize)
         defaultValues.updateValue(NSNumber(value: 1), forKey: Constants.UserDefaults.showStatusItem)
         defaultValues.updateValue(AppDelegate.storeTypesDictinary(), forKey: Constants.UserDefaults.storeTypes)
         defaultValues.updateValue(NSNumber(value: true), forKey: Constants.UserDefaults.inputPasteCommand)
@@ -58,6 +58,9 @@ final class CPYUtilities {
         defaultValues.updateValue(NSNumber(value: false), forKey: Constants.Beta.observerScreenshot)
 
         AppEnvironment.current.defaults.register(defaults: defaultValues)
+        if AppEnvironment.current.defaults.integer(forKey: Constants.UserDefaults.maxHistorySize) == 30 {
+            AppEnvironment.current.defaults.set(500, forKey: Constants.UserDefaults.maxHistorySize)
+        }
         AppEnvironment.current.defaults.synchronize()
     }
 

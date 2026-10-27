@@ -99,6 +99,7 @@ struct ScrollReverserSettingsView: View {
         }
         .formStyle(.grouped)
         .onChange(of: settingsFingerprint) { _ in
+            scrollDefaults.synchronize()
             supervisor.settingsDidChange(for: .scrollReverser)
         }
     }
@@ -256,6 +257,7 @@ struct ResourceMonitorSettingsView: View {
         }
         .formStyle(.grouped)
         .onChange(of: settingsFingerprint) { _ in
+            resourceDefaults.synchronize()
             supervisor.settingsDidChange(for: .resourceMonitor)
         }
     }
@@ -599,7 +601,7 @@ struct ClipyEnhancedSettingsView: View {
     @ObservedObject var bridge: ClipyEnhancedBridge
 
     @AppStorage("kCPYPrefMaxHistorySizeKey", store: clipyDefaults)
-    private var maxHistorySize = 30
+    private var maxHistorySize = 500
     @AppStorage("kCPYPrefInputPasteCommandKey", store: clipyDefaults)
     private var inputPasteCommand = true
     @AppStorage("kCPYPrefReorderClipsAfterPasting", store: clipyDefaults)
@@ -664,6 +666,12 @@ struct ClipyEnhancedSettingsView: View {
         "String", "RTF", "RTFD", "PDF",
         "Filenames", "URL", "TIFF", "Binary"
     ]
+    private static let integerFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .none
+        formatter.allowsFloats = false
+        return formatter
+    }()
 
     init(
         store: ModuleStateStore,
@@ -712,16 +720,17 @@ struct ClipyEnhancedSettingsView: View {
         }
         .onChange(of: settingsFingerprint) { _ in
             clipyDefaults.set(storeTypes, forKey: "kCPYPrefStoreTypesKey")
+            clipyDefaults.synchronize()
             supervisor.settingsDidChange(for: .clipyEnhanced)
         }
     }
 
     private var clipboardSection: some View {
         Section("Clipboard History") {
-            Stepper(
-                "Maximum items: \(maxHistorySize)",
+            numericStepperRow(
+                "Maximum items",
                 value: $maxHistorySize,
-                in: 1...10_000
+                range: 1...10_000
             )
             Toggle(
                 "Paste after choosing an item",
@@ -768,20 +777,20 @@ struct ClipyEnhancedSettingsView: View {
 
     private var menuSection: some View {
         Section("Menu") {
-            Stepper(
-                "Items shown inline: \(inlineItemCount)",
+            numericStepperRow(
+                "Items shown inline",
                 value: $inlineItemCount,
-                in: 0...100
+                range: 0...100
             )
-            Stepper(
-                "Items per folder: \(folderItemCount)",
+            numericStepperRow(
+                "Items per folder",
                 value: $folderItemCount,
-                in: 1...100
+                range: 1...100
             )
-            Stepper(
-                "Maximum title length: \(titleLength)",
+            numericStepperRow(
+                "Maximum title length",
                 value: $titleLength,
-                in: 3...500
+                range: 3...500
             )
             Toggle("Mark items with numbers", isOn: $marksItemsWithNumbers)
             Toggle("Number from zero", isOn: $startsWithZero)
@@ -789,24 +798,24 @@ struct ClipyEnhancedSettingsView: View {
             Toggle("Use number keys", isOn: $numericKeyEquivalents)
             Toggle("Show item icons", isOn: $showsMenuIcons)
             Toggle("Show tooltips", isOn: $showsToolTips)
-            Stepper(
-                "Maximum tooltip length: \(toolTipLength)",
+            numericStepperRow(
+                "Maximum tooltip length",
                 value: $toolTipLength,
-                in: 1...10_000
+                range: 1...10_000
             )
             .disabled(!showsToolTips)
             Toggle("Show image previews", isOn: $showsImages)
             Toggle("Show color previews", isOn: $showsColorPreview)
             HStack {
-                Stepper(
-                    "Thumbnail width: \(thumbnailWidth)",
+                numericStepperRow(
+                    "Thumbnail width",
                     value: $thumbnailWidth,
-                    in: 1...500
+                    range: 1...500
                 )
-                Stepper(
-                    "Height: \(thumbnailHeight)",
+                numericStepperRow(
+                    "Height",
                     value: $thumbnailHeight,
-                    in: 1...500
+                    range: 1...500
                 )
             }
             .disabled(!showsImages)
@@ -917,6 +926,31 @@ struct ClipyEnhancedSettingsView: View {
                 )
             }
             .frame(width: 150, height: 26)
+        }
+    }
+
+    private func numericStepperRow(
+        _ title: String,
+        value: Binding<Int>,
+        range: ClosedRange<Int>
+    ) -> some View {
+        let clampedValue = Binding<Int>(
+            get: {
+                min(max(value.wrappedValue, range.lowerBound), range.upperBound)
+            },
+            set: {
+                value.wrappedValue = min(max($0, range.lowerBound), range.upperBound)
+            }
+        )
+        return HStack {
+            Text(title)
+            Spacer()
+            TextField(title, value: clampedValue, formatter: Self.integerFormatter)
+                .multilineTextAlignment(.trailing)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 84)
+            Stepper(title, value: clampedValue, in: range)
+                .labelsHidden()
         }
     }
 

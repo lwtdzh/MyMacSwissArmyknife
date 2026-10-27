@@ -141,11 +141,11 @@ final class ModuleSupervisorTests: XCTestCase {
         supervisor.shutdown()
         supervisor.reconcile()
 
+        XCTAssertTrue(runtime.forceTerminatedBundleIdentifiers.isEmpty)
         XCTAssertEqual(
-            runtime.forceTerminatedBundleIdentifiers,
+            runtime.terminatedBundleIdentifiers,
             [helperDefinition.bundleIdentifier]
         )
-        XCTAssertTrue(runtime.terminatedBundleIdentifiers.isEmpty)
         XCTAssertEqual(module.stopCount, 1)
         XCTAssertEqual(module.startCount, 0)
         XCTAssertEqual(supervisor.health[helperDefinition.id], .stopped)

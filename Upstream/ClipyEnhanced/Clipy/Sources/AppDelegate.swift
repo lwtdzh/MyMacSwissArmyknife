@@ -164,6 +164,7 @@ extension AppDelegate: NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        AppEnvironment.current.defaults.synchronize()
         bridgeObservers.forEach {
             DistributedNotificationCenter.default().removeObserver($0)
         }

@@ -148,7 +148,7 @@ final class ModuleSupervisor: ObservableObject {
             case .inProcess:
                 inProcessModules[definition.id]?.stop()
             case .bundledApplication(let bundleIdentifier, _):
-                runtime.forceTerminate(bundleIdentifier: bundleIdentifier)
+                runtime.terminate(bundleIdentifier: bundleIdentifier)
             }
             health[definition.id] = .stopped
         }
@@ -272,13 +272,13 @@ final class ModuleSupervisor: ObservableObject {
             do {
                 try await runtime.launch(bundleURL: url)
                 guard !isShuttingDown else {
-                    runtime.forceTerminate(bundleIdentifier: bundleIdentifier)
+                    runtime.terminate(bundleIdentifier: bundleIdentifier)
                     launching.remove(definition.id)
                     return
                 }
                 try await Task.sleep(for: .milliseconds(750))
                 guard !isShuttingDown else {
-                    runtime.forceTerminate(bundleIdentifier: bundleIdentifier)
+                    runtime.terminate(bundleIdentifier: bundleIdentifier)
                     launching.remove(definition.id)
                     return
                 }
