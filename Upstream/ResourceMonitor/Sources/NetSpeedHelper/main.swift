@@ -259,11 +259,13 @@ var previousCPU = cpuCounters()
 
 while true {
     Thread.sleep(forTimeInterval: TimeInterval(interval))
-    emit(
-        previousNetwork: &previousNetwork,
-        previousNetworkSampleTime: &previousNetworkSampleTime,
-        previousDisk: &previousDisk,
-        previousDiskSampleTime: &previousDiskSampleTime,
-        previousCPU: &previousCPU
-    )
+    autoreleasepool {
+        emit(
+            previousNetwork: &previousNetwork,
+            previousNetworkSampleTime: &previousNetworkSampleTime,
+            previousDisk: &previousDisk,
+            previousDiskSampleTime: &previousDiskSampleTime,
+            previousCPU: &previousCPU
+        )
+    }
 }
