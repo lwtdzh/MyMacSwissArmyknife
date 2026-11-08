@@ -691,7 +691,7 @@ extension MenuManager {
             title: item.title,
             toolTip: item.toolTip,
             keyEquivalent: item.keyEquivalent,
-            imageData: makeBridgeImageData(image),
+            imageData: Self.makeBridgeImageData(image),
             imageWidth: image.map { Double($0.size.width) },
             imageHeight: image.map { Double($0.size.height) },
             action: action,
@@ -728,11 +728,41 @@ extension MenuManager {
         }
     }
 
-    private func makeBridgeImageData(_ image: NSImage?) -> Data? {
-        guard let data = image?.tiffRepresentation,
-              let representation = NSBitmapImageRep(data: data) else {
+    static func makeBridgeImageData(_ image: NSImage?) -> Data? {
+        guard let image,
+              image.size.width.isFinite, image.size.height.isFinite,
+              image.size.width > 0, image.size.height > 0 else {
             return nil
         }
+        // Export pixels for the menu's display size, rather than the original
+        // screenshot backing an NSImage with a small logical size.
+        let scale = min(2, 512 / max(image.size.width, image.size.height))
+        let width = max(1, Int(ceil(image.size.width * scale)))
+        let height = max(1, Int(ceil(image.size.height * scale)))
+        guard let representation = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ), let context = NSGraphicsContext(bitmapImageRep: representation) else {
+            return nil
+        }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.imageInterpolation = .high
+        image.draw(
+            in: NSRect(x: 0, y: 0, width: width, height: height),
+            from: .zero,
+            operation: .copy,
+            fraction: 1
+        )
+        NSGraphicsContext.restoreGraphicsState()
         return representation.representation(using: .png, properties: [:])
     }
 

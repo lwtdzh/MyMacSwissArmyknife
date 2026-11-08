@@ -23,6 +23,9 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
     private var keepAwakeItem: NSMenuItem?
     private var blockSleepItem: NSMenuItem?
     private var blockLockScreenItem: NSMenuItem?
+    private var cachedClipyMenu: NSMenu?
+    private var clipyMenuItems: [ClipyMenuItemSnapshot]
+    private var clipyMenuNeedsRefresh = true
     private var isRootMenuOpen = false
     private var pendingConfigurations: [ModuleID: ModuleConfiguration]?
     private var cancellables = Set<AnyCancellable>()
@@ -38,6 +41,7 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         self.bridge = bridge
         self.appBlocker = appBlocker
         self.keepAwake = keepAwake
+        clipyMenuItems = bridge.snapshot.items
         statusItem = NSStatusBar.system.statusItem(
             withLength: NSStatusItem.variableLength
         )
@@ -58,8 +62,13 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
             .store(in: &cancellables)
         bridge.$snapshot
             .dropFirst()
-            .sink { [weak self] _ in
-                self?.refreshClipySubmenu()
+            .sink { [weak self] snapshot in
+                guard let self else { return }
+                self.clipyMenuItems = snapshot.items
+                self.clipyMenuNeedsRefresh = true
+                if !self.isRootMenuOpen {
+                    self.refreshClipySubmenu()
+                }
             }
             .store(in: &cancellables)
         appBlocker.$blockedApplications
@@ -94,17 +103,21 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         isRootMenuOpen = true
         updateModuleItemStates(using: store.configurations)
         updateKeepAwakeItemStates()
-        bridge.requestSnapshot()
-        refreshClipySubmenu()
-        refreshAppBlockerSubmenu()
+        if store.configuration(for: .clipyEnhanced).isEnabled {
+            bridge.requestSnapshot()
+        }
+        updateAppBlockerSubmenuStates(using: appBlocker.blockedApplications)
     }
 
     func menuDidClose(_ menu: NSMenu) {
         guard menu === rootMenu else { return }
         isRootMenuOpen = false
-        guard let configurations = pendingConfigurations else { return }
-        pendingConfigurations = nil
-        rebuildRootMenu(using: configurations)
+        if let configurations = pendingConfigurations {
+            pendingConfigurations = nil
+            rebuildRootMenu(using: configurations)
+        } else if clipyMenuNeedsRefresh {
+            refreshClipySubmenu()
+        }
     }
 
     @objc private func toggleModule(_ sender: NSMenuItem) {
@@ -216,9 +229,9 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
 
             if definition.id == .clipyEnhanced {
                 clipyItem = item
-                if configurations[.clipyEnhanced]?.isEnabled == true {
-                    item.submenu = makeClipyMenu()
-                }
+                refreshClipySubmenu(
+                    enabled: configurations[.clipyEnhanced]?.isEnabled == true
+                )
             } else if definition.id == .appBlocker {
                 appBlockerItem = item
                 item.submenu = makeAppBlockerMenu(
@@ -292,12 +305,19 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         }
     }
 
-    private func refreshClipySubmenu() {
+    private func refreshClipySubmenu(enabled: Bool? = nil) {
         guard let clipyItem else { return }
-        clipyItem.state = store.configuration(for: .clipyEnhanced).isEnabled ? .on : .off
-        clipyItem.submenu = store.configuration(for: .clipyEnhanced).isEnabled
-            ? makeClipyMenu()
-            : nil
+        let enabled = enabled ?? store.configuration(for: .clipyEnhanced).isEnabled
+        clipyItem.state = enabled ? .on : .off
+        guard enabled else {
+            clipyItem.submenu = nil
+            return
+        }
+        if clipyMenuNeedsRefresh || cachedClipyMenu == nil {
+            cachedClipyMenu = makeClipyMenu()
+            clipyMenuNeedsRefresh = false
+        }
+        clipyItem.submenu = cachedClipyMenu
     }
 
     private func appBlockerApplicationsDidChange(
@@ -391,7 +411,7 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
 
     private func makeClipyMenu() -> NSMenu {
         let menu = NSMenu(title: "ClipyEnhanced")
-        for snapshot in bridge.snapshot.items {
+        for snapshot in clipyMenuItems {
             menu.addItem(makeMenuItem(snapshot))
         }
         if menu.items.isEmpty {
@@ -452,7 +472,7 @@ final class AppStatusMenuController: NSObject, NSMenuDelegate {
         item.target = self
         item.toolTip = snapshot.toolTip
         item.isEnabled = snapshot.kind != .header
-        item.image = snapshot.displayImage
+        item.image = snapshot.cachedDisplayImage
         if #available(macOS 27.0, *), item.image != nil {
             item.preferredImageVisibility = .visible
         }

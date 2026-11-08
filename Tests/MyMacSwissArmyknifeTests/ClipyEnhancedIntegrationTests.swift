@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import XCTest
 @testable import MyMacSwissArmyknife
@@ -20,7 +21,7 @@ final class ClipyEnhancedIntegrationTests: XCTestCase {
         )
     }
 
-    func testSnapshotLoadsRecursiveMenuShortcutsAndExcludedApps() throws {
+    func testSnapshotLoadsRecursiveMenuShortcutsAndExcludedApps() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
         let action = ClipyMenuAction(
@@ -70,8 +71,13 @@ final class ClipyEnhancedIntegrationTests: XCTestCase {
             ]
         )
         try JSONEncoder().encode(snapshot).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
         let bridge = ClipyEnhancedBridge(snapshotURL: url)
+        let loaded = expectation(description: "snapshot loaded")
+        let subscription = bridge.$snapshot.dropFirst().sink { _ in loaded.fulfill() }
+        defer { subscription.cancel() }
 
+        await fulfillment(of: [loaded], timeout: 3)
         XCTAssertEqual(bridge.snapshot, snapshot)
     }
 
@@ -109,31 +115,69 @@ final class ClipyEnhancedIntegrationTests: XCTestCase {
         var imageRect = NSRect(origin: .zero, size: image.size)
 
         XCTAssertEqual(image.size, NSSize(width: 100, height: 32))
-        XCTAssertNotNil(
+        let pixels = try XCTUnwrap(
             image.cgImage(
                 forProposedRect: &imageRect,
                 context: nil,
                 hints: nil
             )
         )
+        XCTAssertLessThanOrEqual(pixels.width, 200)
+        XCTAssertLessThanOrEqual(pixels.height, 200)
     }
 
-    func testBridgeSendsEverySupportedAction() async {
-        let center = DistributedNotificationCenter.default()
-        let expectation = expectation(description: "bridge actions")
-        expectation.expectedFulfillmentCount = 7
-        var payloads = [[AnyHashable: Any]]()
-        let observer = center.addObserver(
-            forName: ClipyBridgeNotification.performAction,
-            object: nil,
-            queue: .main
-        ) { notification in
-            if let userInfo = notification.userInfo {
-                payloads.append(userInfo)
-                expectation.fulfill()
+    func testBlockedSnapshotReadDoesNotBlockMainThread() async throws {
+        let data = try JSONEncoder().encode(ClipySnapshot.empty)
+        let readStarted = expectation(description: "read started off main")
+        let releaseRead = DispatchSemaphore(value: 0)
+        defer { releaseRead.signal() }
+        let started = Date()
+        let bridge = ClipyEnhancedBridge(
+            snapshotDataLoader: { _ in
+                XCTAssertFalse(Thread.isMainThread)
+                readStarted.fulfill()
+                _ = releaseRead.wait(timeout: .now() + 2)
+                return data
             }
+        )
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.5)
+
+        let loaded = expectation(description: "blocked read completes")
+        let subscription = bridge.$snapshot.dropFirst().sink { _ in loaded.fulfill() }
+        defer { subscription.cancel() }
+        await fulfillment(of: [readStarted], timeout: 1)
+        releaseRead.signal()
+        await fulfillment(of: [loaded], timeout: 3)
+        XCTAssertEqual(bridge.snapshot, .empty)
+    }
+
+    func testUnchangedSnapshotDoesNotPublishAgain() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let data = try JSONEncoder().encode(ClipySnapshot.empty)
+        try data.write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let bridge = ClipyEnhancedBridge(snapshotURL: url)
+        let loaded = expectation(description: "initial snapshot")
+        let subscription = bridge.$snapshot.dropFirst().sink { _ in loaded.fulfill() }
+        await fulfillment(of: [loaded], timeout: 3)
+        subscription.cancel()
+
+        let duplicate = expectation(description: "no duplicate snapshot")
+        duplicate.isInverted = true
+        let duplicateSubscription = bridge.$snapshot.dropFirst().sink { _ in
+            duplicate.fulfill()
         }
-        defer { center.removeObserver(observer) }
+        defer { duplicateSubscription.cancel() }
+        try data.write(to: url, options: .atomic)
+        for _ in 0..<30 {
+            bridge.loadSnapshot()
+        }
+        await fulfillment(of: [duplicate], timeout: 0.3)
+    }
+
+    func testBridgeSendsEverySupportedAction() {
+        let center = ClipyRecordingNotificationCenter()
 
         let bridge = ClipyEnhancedBridge(
             center: center,
@@ -167,7 +211,8 @@ final class ClipyEnhancedIntegrationTests: XCTestCase {
         bridge.removeExcludedApplication(identifier: "com.example.Secret")
         bridge.updateShortcut("main", keyCode: 9, modifiers: 768)
 
-        await fulfillment(of: [expectation], timeout: 2)
+        let payloads = center.actionPayloads
+        XCTAssertEqual(payloads.count, 7)
         XCTAssertEqual(
             payloads.compactMap { $0["kind"] as? String },
             [
@@ -235,5 +280,21 @@ final class ClipyEnhancedIntegrationTests: XCTestCase {
             isARepeat: false,
             keyCode: keyCode
         )!
+    }
+}
+
+final class ClipyRecordingNotificationCenter:
+    DistributedNotificationCenter, @unchecked Sendable {
+    var actionPayloads: [[AnyHashable: Any]] = []
+
+    override func postNotificationName(
+        _ name: Notification.Name,
+        object: String?,
+        userInfo: [AnyHashable: Any]?,
+        deliverImmediately: Bool
+    ) {
+        if name == ClipyBridgeNotification.performAction, let userInfo {
+            actionPayloads.append(userInfo)
+        }
     }
 }

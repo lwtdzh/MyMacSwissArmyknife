@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import IOKit.pwr_mgt
 import XCTest
 @testable import MyMacSwissArmyknife
@@ -195,6 +196,75 @@ final class AppStatusMenuControllerTests: XCTestCase {
         XCTAssertFalse(appBlocker.blockedApplications[0].isEnabled)
         XCTAssertEqual(controller.displayedAppBlockerItems().first?.state, .off)
         XCTAssertFalse(configurationStore.load()[0].isEnabled)
+    }
+
+    func testMenuReusesClipySubmenuAndDefersChangesUntilClose() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        func writeSnapshot(title: String) throws {
+            let snapshot = ClipySnapshot(
+                items: [
+                    ClipyMenuItemSnapshot(
+                        kind: .action, title: title, toolTip: nil,
+                        keyEquivalent: "", imageData: nil,
+                        imageWidth: nil, imageHeight: nil,
+                        action: nil, children: []
+                    )
+                ],
+                shortcuts: [], excludedApplications: []
+            )
+            try JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
+        }
+        try writeSnapshot(title: "Initial")
+        let store = ModuleStateStore(
+            defaults: makeDefaults(),
+            bootSession: MenuBootSessionStub(id: "boot-a"),
+            loginItemManager: MenuLoginItemNoop()
+        )
+        store.setEnabled(true, for: .clipyEnhanced)
+        let bridge = ClipyEnhancedBridge(
+            center: ClipyRecordingNotificationCenter(),
+            snapshotURL: url
+        )
+        let controller = AppStatusMenuController(
+            store: store, bridge: bridge,
+            appBlocker: makeAppBlocker(),
+            keepAwake: KeepAwakeModule(powerManager: MenuKeepAwakePowerManager())
+        )
+        let loaded = expectation(description: "initial snapshot")
+        let subscription = bridge.$snapshot.dropFirst().sink { _ in loaded.fulfill() }
+        await fulfillment(of: [loaded], timeout: 3)
+        subscription.cancel()
+
+        let root = try XCTUnwrap(
+            Mirror(reflecting: controller).descendant("rootMenu") as? NSMenu
+        )
+        let clipy = try XCTUnwrap(root.items.first { $0.title == "ClipyEnhanced" })
+        let submenu = try XCTUnwrap(clipy.submenu)
+        XCTAssertEqual(submenu.items.first?.title, "Initial")
+        controller.menuWillOpen(root)
+        XCTAssertTrue(clipy.submenu === submenu)
+
+        try writeSnapshot(title: "Updated")
+        let updated = expectation(description: "updated snapshot")
+        let updateSubscription = bridge.$snapshot.dropFirst().sink { _ in
+            updated.fulfill()
+        }
+        defer { updateSubscription.cancel() }
+        bridge.loadSnapshot()
+        await fulfillment(of: [updated], timeout: 3)
+        XCTAssertTrue(clipy.submenu === submenu)
+        XCTAssertEqual(submenu.items.first?.title, "Initial")
+
+        controller.menuDidClose(root)
+        let updatedMenu = try XCTUnwrap(clipy.submenu)
+        XCTAssertEqual(updatedMenu.items.first?.title, "Updated")
+        controller.menuWillOpen(root)
+        XCTAssertTrue(clipy.submenu === updatedMenu)
+        controller.menuDidClose(root)
+        store.setEnabled(false, for: .clipyEnhanced)
+        XCTAssertNil(root.items.first { $0.title == "ClipyEnhanced" }?.submenu)
     }
 
     private func makeDefaults() -> UserDefaults {

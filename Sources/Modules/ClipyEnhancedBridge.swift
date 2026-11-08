@@ -1,6 +1,13 @@
 import AppKit
+import CryptoKit
 import Foundation
 import ImageIO
+
+struct ClipyDisplayImageKey: Hashable {
+    let data: Data
+    let width: Double?
+    let height: Double?
+}
 
 struct ClipyMenuItemSnapshot: Codable, Equatable {
     enum Kind: String, Codable {
@@ -19,38 +26,98 @@ struct ClipyMenuItemSnapshot: Codable, Equatable {
     let imageHeight: Double?
     let action: ClipyMenuAction?
     let children: [ClipyMenuItemSnapshot]
+    var cachedDisplayImage: NSImage? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, title, toolTip, keyEquivalent, imageData
+        case imageWidth, imageHeight, action, children
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.kind == rhs.kind &&
+            lhs.title == rhs.title &&
+            lhs.toolTip == rhs.toolTip &&
+            lhs.keyEquivalent == rhs.keyEquivalent &&
+            lhs.imageData == rhs.imageData &&
+            lhs.imageWidth == rhs.imageWidth &&
+            lhs.imageHeight == rhs.imageHeight &&
+            lhs.action == rhs.action &&
+            lhs.children == rhs.children
+    }
 
     var displayImage: NSImage? {
+        if let cachedDisplayImage { return cachedDisplayImage }
         guard let imageData,
               let source = CGImageSourceCreateWithData(
                   imageData as CFData,
                   nil
-              ),
-              let imageRepresentation = CGImageSourceCreateImageAtIndex(
+              ) else {
+            return nil
+        }
+        let displaySize: NSSize?
+        if let imageWidth, let imageHeight,
+           imageWidth.isFinite, imageHeight.isFinite,
+           imageWidth > 0, imageHeight > 0 {
+            displaySize = NSSize(width: imageWidth, height: imageHeight)
+        } else {
+            displaySize = nil
+        }
+        let maximumPixels = min(
+            512,
+            ceil((displaySize.map { max($0.width, $0.height) } ?? 256) * 2)
+        )
+        guard let imageRepresentation = CGImageSourceCreateThumbnailAtIndex(
                   source,
                   0,
                   [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceThumbnailMaxPixelSize: maximumPixels,
                       kCGImageSourceShouldCache: true,
                       kCGImageSourceShouldCacheImmediately: true
                   ] as CFDictionary
               ) else {
             return nil
         }
-        let size =
-            if let imageWidth,
-               let imageHeight,
-               imageWidth > 0,
-               imageHeight > 0 {
-                NSSize(width: imageWidth, height: imageHeight)
-            } else {
-                NSSize(
-                    width: imageRepresentation.width,
-                    height: imageRepresentation.height
-                )
-            }
+        let size = displaySize ?? NSSize(
+            width: imageRepresentation.width,
+            height: imageRepresentation.height
+        )
         let image = NSImage(cgImage: imageRepresentation, size: size)
         image.cacheMode = .always
         return image
+    }
+
+    func preparingDisplayImages(
+        previousImages: [ClipyDisplayImageKey: NSImage],
+        images: inout [ClipyDisplayImageKey: NSImage]
+    ) -> Self {
+        var prepared = self
+        if let imageData {
+            let key = ClipyDisplayImageKey(
+                data: imageData, width: imageWidth, height: imageHeight
+            )
+            prepared.cachedDisplayImage = images[key]
+                ?? previousImages[key]
+                ?? displayImage
+            images[key] = prepared.cachedDisplayImage
+        }
+        return Self(
+            kind: kind,
+            title: title,
+            toolTip: toolTip,
+            keyEquivalent: keyEquivalent,
+            imageData: imageData,
+            imageWidth: imageWidth,
+            imageHeight: imageHeight,
+            action: action,
+            children: children.map {
+                $0.preparingDisplayImages(
+                    previousImages: previousImages,
+                    images: &images
+                )
+            },
+            cachedDisplayImage: prepared.cachedDisplayImage
+        )
     }
 }
 
@@ -106,6 +173,47 @@ enum ClipyBridgeNotification {
     )
 }
 
+// Accessed only on the bridge's serial snapshot queue.
+private final class ClipySnapshotReader: @unchecked Sendable {
+    private let loadData: @Sendable (URL) -> Data?
+    private var previousDigest: SHA256.Digest?
+    private var previousSnapshot: ClipySnapshot?
+    private var images: [ClipyDisplayImageKey: NSImage] = [:]
+
+    init(loadData: @escaping @Sendable (URL) -> Data?) {
+        self.loadData = loadData
+    }
+
+    func read(_ url: URL) -> ClipySnapshot? {
+        guard let data = loadData(url) else { return nil }
+        let digest = SHA256.hash(data: data)
+        guard digest != previousDigest,
+              let decoded = try? JSONDecoder().decode(
+                  ClipySnapshot.self,
+                  from: data
+              ) else {
+            return nil
+        }
+        previousDigest = digest
+        guard decoded != previousSnapshot else { return nil }
+
+        var nextImages: [ClipyDisplayImageKey: NSImage] = [:]
+        let prepared = ClipySnapshot(
+            items: decoded.items.map {
+                $0.preparingDisplayImages(
+                    previousImages: images,
+                    images: &nextImages
+                )
+            },
+            shortcuts: decoded.shortcuts,
+            excludedApplications: decoded.excludedApplications
+        )
+        images = nextImages
+        previousSnapshot = prepared
+        return prepared
+    }
+}
+
 @MainActor
 final class ClipyEnhancedBridge: ObservableObject {
     @Published private(set) var snapshot = ClipySnapshot.empty
@@ -114,14 +222,25 @@ final class ClipyEnhancedBridge: ObservableObject {
 
     private let center: DistributedNotificationCenter
     private let snapshotURL: URL
+    private let snapshotQueue = DispatchQueue(
+        label: "com.mymacswissarmyknife.clipy.snapshot",
+        qos: .userInitiated
+    )
+    private let snapshotReader: ClipySnapshotReader
+    private var isLoadingSnapshot = false
+    private var needsSnapshotReload = false
     private var observers = [NSObjectProtocol]()
 
     init(
         center: DistributedNotificationCenter = .default(),
-        snapshotURL: URL = ClipyEnhancedBridge.defaultSnapshotURL
+        snapshotURL: URL = ClipyEnhancedBridge.defaultSnapshotURL,
+        snapshotDataLoader: @escaping @Sendable (URL) -> Data? = {
+            try? Data(contentsOf: $0)
+        }
     ) {
         self.center = center
         self.snapshotURL = snapshotURL
+        snapshotReader = ClipySnapshotReader(loadData: snapshotDataLoader)
 
         observers.append(
             center.addObserver(
@@ -153,12 +272,14 @@ final class ClipyEnhancedBridge: ObservableObject {
     }
 
     func requestSnapshot() {
-        center.postNotificationName(
-            ClipyBridgeNotification.requestSnapshot,
-            object: nil,
-            userInfo: nil,
-            deliverImmediately: true
-        )
+        snapshotQueue.async { [center] in
+            center.postNotificationName(
+                ClipyBridgeNotification.requestSnapshot,
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+        }
         loadSnapshot()
     }
 
@@ -217,11 +338,27 @@ final class ClipyEnhancedBridge: ObservableObject {
     }
 
     func loadSnapshot() {
-        guard let data = try? Data(contentsOf: snapshotURL),
-              let decoded = try? JSONDecoder().decode(ClipySnapshot.self, from: data) else {
+        guard !isLoadingSnapshot else {
+            needsSnapshotReload = true
             return
         }
-        snapshot = decoded
+        isLoadingSnapshot = true
+        snapshotQueue.async { [snapshotReader, snapshotURL, weak self] in
+            let decoded = autoreleasepool {
+                snapshotReader.read(snapshotURL)
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.isLoadingSnapshot = false
+                if let decoded {
+                    self.snapshot = decoded
+                }
+                if self.needsSnapshotReload {
+                    self.needsSnapshotReload = false
+                    self.loadSnapshot()
+                }
+            }
+        }
     }
 
     nonisolated static var defaultSnapshotURL: URL {

@@ -1,3 +1,4 @@
+import AppKit
 import Quick
 import Nimble
 import XCTest
@@ -26,6 +27,24 @@ class DraggedDataSpec: QuickSpec {
 }
 
 final class ClipyBridgeTests: XCTestCase {
+    func testBridgeExportsMenuSizedPixelsInsteadOfOriginalScreenshot() throws {
+        let original = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 3840, pixelsHigh: 2160,
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        let image = NSImage(size: NSSize(width: 100, height: 32))
+        image.addRepresentation(original)
+        let data = try XCTUnwrap(MenuManager.makeBridgeImageData(image))
+        let exported = try XCTUnwrap(NSBitmapImageRep(data: data))
+
+        XCTAssertEqual(exported.pixelsWide, 200)
+        XCTAssertEqual(exported.pixelsHigh, 64)
+        XCTAssertLessThan(data.count, 100_000)
+    }
+
     func testSnapshotRoundTripPreservesNestedAction() throws {
         let action = ClipyBridgeAction(
             kind: "pasteClip",
