@@ -17,56 +17,105 @@ struct CPUCounters {
     var total: UInt64 = 0
 }
 
-func networkCounters() -> [String: Counters]? {
-    let process = Process()
-    let output = Pipe()
-    let readHandle = output.fileHandleForReading
-    let writeHandle = output.fileHandleForWriting
-    defer {
-        try? readHandle.close()
-        try? writeHandle.close()
-    }
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
-    process.arguments = [
-        "-P", "-t", "external", "-L", "1", "-n", "-x",
-        "-J", "bytes_in,bytes_out"
-    ]
-    process.environment = ProcessInfo.processInfo.environment.merging(
-        ["LC_ALL": "C"]
-    ) { _, new in new }
-    process.standardOutput = output
-    process.standardError = FileHandle.nullDevice
+struct NetworkDeltaParser {
+    private var buffer = Data()
+    private var hasBaseline = false
+    private var readingDeltas = false
 
-    do {
-        try process.run()
-    } catch {
-        return nil
-    }
+    mutating func consume(_ data: Data) -> Counters {
+        buffer.append(data)
+        var counters = Counters()
+        while let newline = buffer.firstIndex(of: 0x0A) {
+            let line = String(decoding: buffer[..<newline], as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            buffer.removeSubrange(...newline)
 
-    try? writeHandle.close()
-    let data = readHandle.readDataToEndOfFile()
-    process.waitUntilExit()
-    guard
-        process.terminationStatus == EXIT_SUCCESS,
-        let text = String(data: data, encoding: .utf8)
-    else {
-        return nil
-    }
-
-    var counters: [String: Counters] = [:]
-    for line in text.split(separator: "\n").dropFirst() {
-        let fields = line.split(separator: ",", omittingEmptySubsequences: false)
-        guard
-            fields.count >= 3,
-            !fields[0].isEmpty,
-            let download = UInt64(fields[1]),
-            let upload = UInt64(fields[2])
-        else {
-            continue
+            if line.hasPrefix(",") {
+                // The first nettop frame contains existing totals, even with -d.
+                readingDeltas = hasBaseline
+                hasBaseline = true
+                continue
+            }
+            guard readingDeltas else { continue }
+            let fields = line.split(separator: ",", omittingEmptySubsequences: false)
+            guard fields.count >= 3, !fields[0].isEmpty,
+                  let download = UInt64(fields[1]), let upload = UInt64(fields[2])
+            else { continue }
+            counters.download += download
+            counters.upload += upload
         }
-        counters[String(fields[0])] = Counters(download: download, upload: upload)
+        return counters
     }
-    return counters.isEmpty ? nil : counters
+}
+
+final class ExternalNetworkSampler {
+    private let process = Process()
+    private let readHandle: FileHandle
+    private let queue = DispatchQueue(label: "com.mymacswissarmyknife.ResourceMonitor.network")
+    private var parser = NetworkDeltaParser()
+    private var pending = Counters()
+
+    init() throws {
+        var master: Int32 = -1
+        var slave: Int32 = -1
+        guard openpty(&master, &slave, nil, nil, nil) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        readHandle = FileHandle(fileDescriptor: master, closeOnDealloc: true)
+        let writeHandle = FileHandle(fileDescriptor: slave, closeOnDealloc: true)
+        defer { try? writeHandle.close() }
+
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
+        process.arguments = [
+            "-P", "-d", "-t", "external", "-L", "0", "-s", "1", "-n", "-x",
+            "-J", "bytes_in,bytes_out"
+        ]
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            ["LC_ALL": "C"]
+        ) { _, new in new }
+        // A PTY makes nettop flush each frame instead of buffering small samples.
+        process.standardOutput = writeHandle
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        try process.run()
+
+        readHandle.readabilityHandler = { [weak self] handle in
+            var storage = Data(count: 65_536)
+            let received = storage.withUnsafeMutableBytes {
+                Darwin.read(handle.fileDescriptor, $0.baseAddress, $0.count)
+            }
+            if received < 0, errno == EINTR { return }
+            guard received > 0 else {
+                handle.readabilityHandler = nil
+                return
+            }
+            let data = Data(storage.prefix(received))
+            self?.queue.async { [weak self] in
+                guard let self else { return }
+                let delta = self.parser.consume(data)
+                self.pending.download += delta.download
+                self.pending.upload += delta.upload
+            }
+        }
+    }
+
+    func takeCounters() -> Counters {
+        // Let the host restart the helper if its continuous collector exits.
+        guard process.isRunning else { exit(EXIT_FAILURE) }
+        return queue.sync {
+            let result = pending
+            pending = Counters()
+            return result
+        }
+    }
+
+    func stop() {
+        readHandle.readabilityHandler = nil
+        if process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+        }
+    }
 }
 
 func cpuCounters() -> CPUCounters {
@@ -170,39 +219,24 @@ func refreshInterval() -> Int {
 }
 
 func emit(
-    previousNetwork: inout [String: Counters],
+    networkSampler: ExternalNetworkSampler,
     previousNetworkSampleTime: inout TimeInterval,
     previousDisk: inout DiskCounters,
     previousDiskSampleTime: inout TimeInterval,
     previousCPU: inout CPUCounters
 ) {
-    let sampledNetwork = networkCounters()
+    let sampledNetwork = networkSampler.takeCounters()
     let currentNetworkSampleTime = ProcessInfo.processInfo.systemUptime
     let networkSampleInterval = max(currentNetworkSampleTime - previousNetworkSampleTime, 0.001)
-    var externalDownload: UInt64 = 0
-    var externalUpload: UInt64 = 0
+    let externalDownload = sampledNetwork.download
+    let externalUpload = sampledNetwork.upload
     var interfaces: [String: [String: UInt64]] = [:]
 
-    if let currentNetwork = sampledNetwork {
-        for (process, current) in currentNetwork {
-            guard let previous = previousNetwork[process] else { continue }
-            let download = current.download >= previous.download
-                ? current.download - previous.download
-                : 0
-            let upload = current.upload >= previous.upload
-                ? current.upload - previous.upload
-                : 0
-            externalDownload += download
-            externalUpload += upload
-        }
-        previousNetwork = currentNetwork
-        previousNetworkSampleTime = currentNetworkSampleTime
-    }
+    previousNetworkSampleTime = currentNetworkSampleTime
     interfaces["external"] = [
         "downloadBytesPerSecond": UInt64(Double(externalDownload) / networkSampleInterval),
         "uploadBytesPerSecond": UInt64(Double(externalUpload) / networkSampleInterval)
     ]
-
     let currentDisk = diskCounters()
     let currentDiskSampleTime = ProcessInfo.processInfo.systemUptime
     let diskSampleInterval = max(currentDiskSampleTime - previousDiskSampleTime, 0.001)
@@ -251,7 +285,20 @@ func emit(
 _ = setpgid(0, 0)
 
 let interval = refreshInterval()
-var previousNetwork = networkCounters() ?? [:]
+let networkSampler: ExternalNetworkSampler
+do {
+    networkSampler = try ExternalNetworkSampler()
+} catch {
+    FileHandle.standardError.write(Data("Unable to start nettop: \(error)\n".utf8))
+    exit(EXIT_FAILURE)
+}
+signal(SIGTERM, SIG_IGN)
+let shutdownSignal = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
+shutdownSignal.setEventHandler {
+    networkSampler.stop()
+    exit(EXIT_SUCCESS)
+}
+shutdownSignal.resume()
 var previousNetworkSampleTime = ProcessInfo.processInfo.systemUptime
 var previousDisk = diskCounters()
 var previousDiskSampleTime = ProcessInfo.processInfo.systemUptime
@@ -261,7 +308,7 @@ while true {
     Thread.sleep(forTimeInterval: TimeInterval(interval))
     autoreleasepool {
         emit(
-            previousNetwork: &previousNetwork,
+            networkSampler: networkSampler,
             previousNetworkSampleTime: &previousNetworkSampleTime,
             previousDisk: &previousDisk,
             previousDiskSampleTime: &previousDiskSampleTime,

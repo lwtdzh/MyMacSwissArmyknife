@@ -4,6 +4,8 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+python3 "${root}/Scripts/test-resource-network-helper.py"
+
 if grep -nF "NSMenuItem.separator()" \
   "${root}/Sources/RightClickMenuExtension/FinderSync.swift"; then
   echo "FinderSync menus must not contain separators; Finder drops the entire contribution." >&2

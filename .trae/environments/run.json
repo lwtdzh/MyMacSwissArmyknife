@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "defaultActionId": "installed_app",
+  "actions": [
+    {
+      "id": "installed_app",
+      "name": "启动已安装应用",
+      "command": "open \"/Applications/MyMacSwissArmyknife.app\"",
+      "cwd": ".",
+      "background": false,
+      "source": "agent",
+      "open": {
+        "type": "terminal"
+      }
+    }
+  ]
+}
