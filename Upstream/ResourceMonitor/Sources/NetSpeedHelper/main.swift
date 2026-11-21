@@ -50,6 +50,9 @@ struct NetworkDeltaParser {
 
 final class ExternalNetworkSampler {
     private let process = Process()
+    // nettop watches stdin even in CSV mode. Keep the writer open and idle:
+    // /dev/null (or a closed pipe) repeatedly signals EOF and spins its event loop.
+    private let inputPipe = Pipe()
     private let readHandle: FileHandle
     private let queue = DispatchQueue(label: "com.mymacswissarmyknife.ResourceMonitor.network")
     private var parser = NetworkDeltaParser()
@@ -76,7 +79,7 @@ final class ExternalNetworkSampler {
         // A PTY makes nettop flush each frame instead of buffering small samples.
         process.standardOutput = writeHandle
         process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
+        process.standardInput = inputPipe
         try process.run()
 
         readHandle.readabilityHandler = { [weak self] handle in
@@ -279,7 +282,14 @@ func emit(
     }
 
     line.append("\n")
-    FileHandle.standardOutput.write(Data(line.utf8))
+    do {
+        try FileHandle.standardOutput.write(contentsOf: Data(line.utf8))
+    } catch {
+        // The app (or XCTest host) may exit without sending us SIGTERM.
+        // Reap nettop before exiting when its consumer closes the output pipe.
+        networkSampler.stop()
+        exit(EXIT_FAILURE)
+    }
 }
 
 _ = setpgid(0, 0)
@@ -292,6 +302,9 @@ do {
     FileHandle.standardError.write(Data("Unable to start nettop: \(error)\n".utf8))
     exit(EXIT_FAILURE)
 }
+// Let a closed output pipe reach the throwing write above instead of killing
+// the helper immediately and leaving nettop with an EOF input busy loop.
+signal(SIGPIPE, SIG_IGN)
 signal(SIGTERM, SIG_IGN)
 let shutdownSignal = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
 shutdownSignal.setEventHandler {
